@@ -139,6 +139,41 @@ pub fn run_in(root: &Path, args: &[&str]) -> Result<(), String> {
     run(&full)
 }
 
+/// Uruchamia polecenie powłoki jako wskazany użytkownik (zrzut uprawnień
+/// przez uid/gid z biblioteki standardowej — bez zależności od `setpriv`,
+/// którego nośnik live Chimery nie zawiera). Czyste środowisko z HOME/PATH.
+pub fn run_as_user(
+    uid: u32,
+    gid: u32,
+    user: &str,
+    home: &str,
+    cwd: &str,
+    shell_cmd: &str,
+) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    log(&format!("$ (jako {user}, w {cwd}) {shell_cmd}"));
+    let child = Command::new("sh")
+        .arg("-c")
+        .arg(shell_cmd)
+        .uid(uid)
+        .gid(gid)
+        // Katalog roboczy musi należeć do użytkownika — bez tego proces
+        // dziedziczy cwd roota (niedostępne), a `.` w poleceniach celuje tam.
+        .current_dir(cwd)
+        .env_clear()
+        .env("HOME", home)
+        .env("USER", user)
+        .env("LOGNAME", user)
+        .env("PATH", "/usr/bin:/usr/sbin:/bin:/sbin")
+        .env("TMPDIR", cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("nie można uruchomić polecenia jako {user}: {e}"))?;
+    stream_child(child, shell_cmd)
+}
+
 /// Jak `run_in`, ale argument o indeksie `hide` (licząc w `args`) jest
 /// w logu zastąpiony znacznikiem — do przekazywania hashy haseł.
 pub fn run_in_redacted(root: &Path, args: &[&str], hide: usize) -> Result<(), String> {

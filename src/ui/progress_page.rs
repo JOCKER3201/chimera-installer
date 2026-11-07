@@ -161,7 +161,13 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
 
     let app = app.clone();
     let mode = cfg.mode;
+    // Pełny dziennik instalacji zapisywany równolegle na pulpit użytkownika.
+    let log_path = desktop_log_path();
+    let log_file = std::cell::RefCell::new(std::fs::File::create(&log_path).ok());
     glib::spawn_future_local(async move {
+        if let Some(f) = log_file.borrow_mut().as_mut() {
+            let _ = writeln!(f, "# dziennik instalacji vanilla-installer");
+        }
         let append_log = |text: &str| {
             let mut end = log_buffer.end_iter();
             log_buffer.insert(&mut end, text);
@@ -169,6 +175,10 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
             let mark = log_buffer.create_mark(None, &log_buffer.end_iter(), false);
             log_view.scroll_to_mark(&mark, 0.0, true, 0.0, 1.0);
             log_buffer.delete_mark(&mark);
+            if let Some(f) = log_file.borrow_mut().as_mut() {
+                let _ = writeln!(f, "{text}");
+                let _ = f.flush();
+            }
         };
         while let Ok(msg) = rx.recv().await {
             match msg {
@@ -198,6 +208,30 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
             }
         }
     });
+}
+
+/// Ścieżka dziennika na pulpicie użytkownika (XDG_DESKTOP_DIR, potem
+/// Desktop/Pulpit, w ostateczności katalog domowy).
+fn desktop_log_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+    if let Ok(cfg) = std::fs::read_to_string(format!("{home}/.config/user-dirs.dirs")) {
+        for line in cfg.lines() {
+            if let Some(v) = line.trim().strip_prefix("XDG_DESKTOP_DIR=") {
+                let dir = v.trim().trim_matches('"').replace("$HOME", &home);
+                let p = std::path::PathBuf::from(dir);
+                if p.is_dir() {
+                    return p.join("vanilla-installer.log");
+                }
+            }
+        }
+    }
+    for d in ["Desktop", "Pulpit"] {
+        let p = std::path::Path::new(&home).join(d);
+        if p.is_dir() {
+            return p.join("vanilla-installer.log");
+        }
+    }
+    std::path::Path::new(&home).join("vanilla-installer.log")
 }
 
 fn done_page(app: &Rc<App>, mode: crate::config::Mode) -> adw::NavigationPage {

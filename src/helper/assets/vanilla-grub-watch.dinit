@@ -1,0 +1,6 @@
+# vanilla-installer: automatyczne update-grub po zmianie migawek btrfs.
+# Pilnuje /.snapshots i odświeża menu GRUB po utworzeniu/usunięciu migawki.
+type = process
+command = /usr/bin/vanilla-grub-watch
+smooth-recovery = true
+depends-on: local.target

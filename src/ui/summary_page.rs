@@ -69,7 +69,11 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
             .iter()
             .map(|g| {
                 let drv = if g.driver.is_empty() { "bez zmian" } else { &g.driver };
-                format!("{drv} ({}:{})", g.vendor, g.device)
+                if drv.starts_with("nvidia-") {
+                    format!("{drv} — EKSPERYMENTALNY ({}:{})", g.vendor, g.device)
+                } else {
+                    format!("{drv} ({}:{})", g.vendor, g.device)
+                }
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -94,7 +98,7 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     }
     list.append(&row(
         "System plików",
-        "btrfs, subwolumeny jak w openSUSE (@, @/.snapshots, @/home, @/var, …)",
+        "btrfs, układ CachyOS (stały subvol=@, @home, @log, @cache, @snapshots)",
     ));
     list.append(&row(
         "Migawki",

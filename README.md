@@ -40,23 +40,35 @@ oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
   * brak wolnego miejsca → pytanie o przejście do **trybu zaawansowanego**
     (na razie **atrapa** — przycisk tylko informuje), dostępna jest też opcja
     wymazania całego dysku.
-* **btrfs przystosowany pod snappera, identycznie jak w openSUSE**:
-  * subwolumeny: `@`, `@/.snapshots`, `@/.snapshots/1/snapshot` (w nim żyje
-    system; ustawiany jako *default subvolume*), `@/home`, `@/opt`, `@/root`,
-    `@/srv`, `@/usr/local`, `@/var` (z `chattr +C`), `@/boot/grub`
-    (odpowiednik `@/boot/grub2/*` z openSUSE — GRUB w Chimerze używa
-    `/boot/grub`),
-  * `/` montowany bez `subvol=` (z domyślnego subwolumenu), pozostałe
-    subwolumeny jawnie w `fstab` — dokładnie jak robi to instalator openSUSE,
-  * migawka nr 1 dostaje `info.xml` („first root filesystem"), więc snapper
-    widzi ją od pierwszego uruchomienia,
-  * `/etc/snapper/configs/root` z wartościami domyślnej instalacji openSUSE
-    (`NUMBER_LIMIT="2-10"`, `NUMBER_LIMIT_IMPORTANT="4-10"`,
-    `TIMELINE_CREATE="no"`, …), rejestr `SNAPPER_CONFIGS="root"`, usługa
-    `snapper` (dinit) włączona,
-  * GRUB z `SUSE_BTRFS_SNAPSHOT_BOOTING="true"` oraz generatorem
-    `/etc/grub.d/80_snapshots`, który dodaje podmenu z rozruchem każdej
-    migawki (`rootflags=subvol=@/.snapshots/N/snapshot`, tryb `ro`).
+* **btrfs przystosowany pod snappera w układzie CachyOS** (świadomie zamiast
+  openSUSE — rollback działa wtedy na **waniliowym GRUB**, bez łatania
+  bootloadera i z samej konsoli):
+  * subwolumeny płaskie, top-level: `@` (root), `@home`, `@root`, `@srv`,
+    `@cache` (/var/cache), `@tmp` (/var/tmp), `@log` (/var/log, z `chattr +C`
+    jak `@cache`), oraz `@snapshots` na `/.snapshots`,
+  * `/` montowany jako **stały `subvol=@`** — to on sprawia, że rollback
+    (podmiana zawartości `@`) jest widoczny dla niełatanego GRUB-a,
+  * `/boot` zostaje **wewnątrz `@`**, więc rollback obejmuje też kernel/initrd
+    (lepiej niż CachyOS z Limine, gdzie kernel jest na ESP poza migawkami),
+  * `@snapshots` jest **osobnym** subwolumenem (poza `@`), żeby migawki
+    przeżyły podmianę `@` bez żadnej specjalnej obsługi,
+  * `/etc/snapper/configs/root` (`NUMBER_LIMIT="2-10"`, `TIMELINE_CREATE="no"`,
+    …), rejestr `SNAPPER_CONFIGS="root"`, usługa `snapper` (dinit) włączona;
+    tworzona jest migawka wyjściowa „instalacja systemu",
+  * generator `/etc/grub.d/80_snapshots` dodaje podmenu z rozruchem migawek
+    **read-only** (ścieżki od top-level `/@snapshots/N/snapshot/…`, działa na
+    waniliowym GRUB) — ścieżka ratunkowa, gdy system nie wstaje,
+  * usługa dinit `vanilla-grub-watch` (przez `inotify-tools`) pilnuje
+    `/.snapshots` i **automatycznie wykonuje `update-grub` po każdym
+    utworzeniu lub usunięciu migawki** (odpowiednik `grub-btrfs.path`
+    z CachyOS), więc podmenu migawek jest zawsze aktualne.
+* **Rollback z wiersza poleceń** — narzędzie `vanilla-rollback` (instalowane
+  do `/usr/bin`) przywraca migawkę metodą podmiany `@` (jak CachyOS/Timeshift),
+  **bez GUI i bez sterownika graficznego**: `doas vanilla-rollback list`,
+  `doas vanilla-rollback <N>`, `reboot`. Działa z konsoli `tty`, przez SSH,
+  z bootniętej migawki read-only, a nawet z live USB. `snapper rollback`
+  (openSUSE, oparty na `set-default`) świadomie NIE jest używany — waniliowy
+  GRUB by go zignorował.
 * **pkexec zamiast sudo** — GUI działa bez uprawnień; całą pracę wykonuje
   helper (`<binarka> helper`) uruchamiany przez `pkexec`, a konfiguracja
   (w tym hasła) przechodzi wyłącznie przez stdin.
@@ -84,25 +96,64 @@ instalacji. W systemie docelowym tworzony jest użytkownik w grupie `wheel`
 (administracja przez `doas`, zgodnie z domyślną konfiguracją Chimery);
 konto roota można zablokować, zostawiając puste hasło.
 
-Instalowane pakiety: `base-full` (przez `chimera-bootstrap`), `linux-lts`
+Instalowane pakiety: `base-full` (przez `chimera-bootstrap`), `linux-stable`
 (poza trybem lokalnym — tam jądro pochodzi z kopii live), `btrfs-progs`,
 `snapper` (repozytorium `user` dodawane automatycznie), `openssl`,
 `dinit-chimera-udev`, mikrokod CPU, `grub-x86_64-efi`+`efibootmgr` (UEFI)
 albo `grub-i386-pc` (BIOS); dla pulpitów dodatkowo `gnome`+`gdm` lub
 `plasma-desktop`+`sddm` oraz `networkmanager`.
 
+## Eksperymentalne: zastrzeżony sterownik NVIDIA
+
+Dla kart NVIDIA, **wyłącznie w trybie live**, na ekranie karty graficznej
+dostępne są dodatkowo zastrzeżone sterowniki (gałąź **620** — Turing i nowsze,
+albo **580** — Maxwell/Pascal). Ponieważ pakiety nie są jeszcze w repozytorium
+Chimery, instalator **buduje je na żywym nośniku** z otwartego PR-a cports
+(#6531) narzędziem `cbuild`:
+
+1. doinstalowuje zależnoości budowania (`base-cbuild-host`, `ruff`),
+2. klonuje cports do `/tmp/musl-nvidia` (aktualny tip gałęzi PR-a; PR bywa
+   force-pushowany, więc sztywny commit szybko przestaje być osiągalny —
+   użyty SHA trafia do dziennika),
+3. buduje pakiety jako zwykły użytkownik (cbuild odmawia pracy jako root),
+4. instaluje wynikowe `.apk` do systemu docelowego (`apk --root
+   --allow-untrusted`), razem z `linux-stable-devel` i `*-ckms`; moduł jądra
+   buduje trigger ckms, a `musl` jest podmieniany na `musl-nvidia` w tej samej
+   transakcji; blacklistę nouveau i firmware GSP dostarczają same pakiety.
+
+Opcja jest **eksperymentalna**: PR jest oznaczony jako roboczy, build pobiera
+~1,5–2 GB i zajmuje kilka GB miejsca (uwaga na `tmpfs` w `/tmp` na nośniku
+live), a z powodu znanego błędu apk moduł jądra może zbudować się dopiero przy
+pierwszym uruchomieniu. Przed wyborem instalator wyświetla ostrzeżenie.
+
 ## Przywracanie migawek (rollback)
 
-Układ jest w pełni zgodny ze schematem openSUSE (`snapper rollback` działa),
-ale Chimera używa niełatanego GRUB-a, który w `grub.cfg` zapisuje ścieżkę
-subwolumenu na sztywno. Po `snapper rollback` należy więc:
+Rollback działa **w całości z wiersza poleceń**, bez GUI i bez sterownika
+graficznego, na niełatanym GRUB-ie — bo `/` to stały `subvol=@`, a przywrócenie
+podmienia *zawartość* `@` (model CachyOS/Timeshift):
 
-1. uruchomić ponownie komputer,
-2. w menu GRUB-a wybrać *Chimera Linux — migawki btrfs* → docelową migawkę,
-3. po zalogowaniu wykonać `doas update-grub`.
+1. z działającego systemu albo z konsoli `tty` (gdy padł tylko pulpit),
+   przez SSH, z bootniętej migawki read-only lub z live USB:
+   ```sh
+   doas vanilla-rollback list      # numery dostępnych migawek
+   doas vanilla-rollback 7         # przywróć migawkę nr 7
+   reboot
+   ```
+2. po restarcie GRUB montuje stały `subvol=@`, w którym jest już przywrócona
+   zawartość — **żadnego `update-grub` ani wyboru w menu**.
 
-(openSUSE omija krok 2–3 łatkami w swoim pakiecie GRUB-a; ich przenoszenie
-jest poza zakresem instalatora.)
+Poprzedni stan zostaje zachowany jako `@_rollback_backup_<data>` (można go
+później usunąć). `snapper rollback` z openSUSE (oparty na `set-default`)
+celowo NIE jest używany, bo waniliowy GRUB by go zignorował.
+
+Ręcznie z live USB (gdy nie wstaje nawet konsola) — to samo, co robi
+`vanilla-rollback`:
+```sh
+doas mount -o subvolid=5 /dev/<partycja-btrfs> /mnt
+doas mv /mnt/@ /mnt/@_backup
+doas btrfs subvolume snapshot /mnt/@snapshots/<N>/snapshot /mnt/@
+doas umount /mnt && reboot
+```
 
 ## Ograniczenia obecnej wersji
 

@@ -1,5 +1,5 @@
-// Właściwa instalacja: btrfs w układzie openSUSE, bootstrap (live/chroot),
-// konfiguracja systemu docelowego, snapper i GRUB.
+// Właściwa instalacja: btrfs w układzie CachyOS (stały subvol=@), bootstrap
+// (live/chroot), konfiguracja systemu docelowego, snapper, GRUB i rollback.
 
 use super::cmd::{
     log, run, run_capture, run_in, run_in_capture_stdin, run_in_redacted, run_in_soft, run_soft,
@@ -25,10 +25,23 @@ pub fn target_mount(cfg: &InstallConfig) -> PathBuf {
     }
 }
 
-/// Subwolumeny rozdzielone jak w domyślnej instalacji openSUSE.
-/// (/boot/grub zamiast /boot/grub2/<platforma>, bo tak nazywa katalog GRUB
-/// w Chimerze; cel jest ten sam — konfiguracja GRUB-a wspólna dla migawek.)
-const SUBVOLS: &[&str] = &["home", "opt", "root", "srv", "usr/local", "var", "boot/grub"];
+/// Płaskie, nazwane subwolumeny top-level w stylu CachyOS. / to STAŁY
+/// subvol=@ — rollback podmienia ZAWARTOŚĆ @ (mv @ → kopia, snapshot → @),
+/// więc działa na waniliowym GRUB (bez btrfs set-default, bez łatek).
+/// /boot zostaje WEWNĄTRZ @, żeby rollback obejmował kernel/initrd.
+/// Para: (nazwa subwolumenu top-level, punkt montowania względem /).
+const SUBVOLS: &[(&str, &str)] = &[
+    ("@home", "home"),
+    ("@root", "root"),
+    ("@srv", "srv"),
+    ("@cache", "var/cache"),
+    ("@tmp", "var/tmp"),
+    ("@log", "var/log"),
+];
+
+/// Subwolumen migawek — MUSI być osobny (poza @), żeby przetrwał podmianę
+/// @ przy rollbacku; inaczej migawki zniknęłyby razem ze starym @.
+const SNAPSHOTS_SUBVOL: &str = "@snapshots";
 
 const TOP_MOUNT: &str = "/run/vanilla-installer/top";
 
@@ -53,41 +66,16 @@ pub fn make_subvolumes(parts: &TargetParts) -> Result<(), String> {
         let top = Path::new(TOP_MOUNT);
         let at = |s: &str| top.join(s).to_string_lossy().to_string();
 
+        // @ — stały subwolumen roota; @snapshots — osobny magazyn migawek.
         run(&["btrfs", "subvolume", "create", &at("@")])?;
-        run(&["btrfs", "subvolume", "create", &at("@/.snapshots")])?;
-        fs::create_dir_all(top.join("@/.snapshots/1"))
-            .map_err(|e| format!("mkdir @/.snapshots/1: {e}"))?;
-        run(&["btrfs", "subvolume", "create", &at("@/.snapshots/1/snapshot")])?;
+        run(&["btrfs", "subvolume", "create", &at(SNAPSHOTS_SUBVOL)])?;
 
-        for sv in SUBVOLS {
-            if let Some(parent) = Path::new(sv).parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(top.join("@").join(parent))
-                        .map_err(|e| format!("mkdir @/{}: {e}", parent.display()))?;
-                }
-            }
-            run(&["btrfs", "subvolume", "create", &at(&format!("@/{sv}"))])?;
+        for (sv, _) in SUBVOLS {
+            run(&["btrfs", "subvolume", "create", &at(sv)])?;
         }
-        // Jak w openSUSE: /var bez kopiowania przy zapisie (bazy danych, VM).
-        run_soft(&["chattr", "+C", &at("@/var")]);
-
-        // Metadane pierwszej migawki, żeby snapper widział ją jak w openSUSE.
-        let date = run_capture(&["date", "-u", "+%F %T"])?.trim().to_string();
-        let info = format!(
-            "<?xml version=\"1.0\"?>\n<snapshot>\n  <type>single</type>\n  <num>1</num>\n  <date>{date}</date>\n  <description>first root filesystem</description>\n</snapshot>\n"
-        );
-        fs::write(top.join("@/.snapshots/1/info.xml"), info)
-            .map_err(|e| format!("zapis info.xml: {e}"))?;
-
-        // System żyje w migawce nr 1 — ustawiamy ją jako domyślny subwolumen.
-        let id = run_capture(&[
-            "btrfs",
-            "inspect-internal",
-            "rootid",
-            &at("@/.snapshots/1/snapshot"),
-        ])?;
-        let id = id.trim().to_string();
-        run(&["btrfs", "subvolume", "set-default", &id, TOP_MOUNT])?;
+        // Dużo drobnych zapisów — bez kopiowania przy zapisie (jak CachyOS).
+        run_soft(&["chattr", "+C", &at("@log")]);
+        run_soft(&["chattr", "+C", &at("@cache")]);
         Ok(())
     })();
     run_soft(&["umount", TOP_MOUNT]);
@@ -98,17 +86,15 @@ pub fn mount_target(cfg: &InstallConfig, parts: &TargetParts) -> Result<PathBuf,
     let target = target_mount(cfg);
     let t = target.to_string_lossy().to_string();
     fs::create_dir_all(&target).map_err(|e| format!("mkdir {t}: {e}"))?;
-    // Bez subvol= — montuje się domyślny subwolumen (@/.snapshots/1/snapshot),
-    // dokładnie tak, jak będzie montowany działający system.
-    run(&["mount", &parts.root, &t])?;
+    // Root to STAŁY subvol=@ — dokładnie tak, jak zamontuje go GRUB i fstab.
+    run(&["mount", "-o", "subvol=@", &parts.root, &t])?;
     run(&["chmod", "755", &t])?;
 
-    let mut mounts: Vec<(String, String)> = vec![(
-        "/@/.snapshots".to_string(),
-        ".snapshots".to_string(),
-    )];
-    for sv in SUBVOLS {
-        mounts.push((format!("/@/{sv}"), sv.to_string()));
+    // Osobny magazyn migawek najpierw, potem pozostałe subwolumeny.
+    let mut mounts: Vec<(String, String)> =
+        vec![(SNAPSHOTS_SUBVOL.to_string(), ".snapshots".to_string())];
+    for (sv, mp) in SUBVOLS {
+        mounts.push((sv.to_string(), mp.to_string()));
     }
     for (subvol, rel) in mounts {
         let mp = target.join(&rel);
@@ -311,8 +297,8 @@ pub fn teardown_chroot_binds(root: &Path) {
 pub fn bootstrap(cfg: &InstallConfig) -> Result<(), String> {
     match cfg.mode {
         Mode::Live => {
-            // -f: cel jest celowo „niepusty” — układ subwolumenów jest już
-            // zamontowany, a kontrola pustości potyka się o info.xml migawki.
+            // -f: cel jest celowo „niepusty” — ma już zamontowany układ
+            // subwolumenów (punkty montowania /home, /.snapshots itd.).
             match cfg.source {
                 Source::Local => run(&["chimera-bootstrap", "-f", "-l", "/media/root"])
                     .map_err(|e| {
@@ -358,20 +344,18 @@ pub fn read_uuids(parts: &TargetParts) -> Result<Uuids, String> {
     })
 }
 
-/// fstab w stylu openSUSE: / z domyślnego subwolumenu (bez subvol=),
-/// pozostałe subwolumeny jawnie, ESP na /boot/efi.
+/// fstab w stylu CachyOS: / jako STAŁY subvol=@ (to on sprawia, że rollback
+/// przez podmianę @ działa na waniliowym GRUB), /.snapshots jako osobny
+/// @snapshots, pozostałe subwolumeny jawnie, ESP na /boot/efi.
 pub fn write_fstab(target: &Path, cfg: &InstallConfig, uuids: &Uuids) -> Result<(), String> {
     let mut fstab = String::from("# /etc/fstab — wygenerowane przez vanilla-installer\n");
-    fstab.push_str(&format!("UUID={} / btrfs defaults 0 0\n", uuids.root));
+    fstab.push_str(&format!("UUID={} / btrfs defaults,subvol=@ 0 0\n", uuids.root));
     fstab.push_str(&format!(
-        "UUID={} /.snapshots btrfs subvol=/@/.snapshots 0 0\n",
+        "UUID={} /.snapshots btrfs subvol={SNAPSHOTS_SUBVOL} 0 0\n",
         uuids.root
     ));
-    for sv in SUBVOLS {
-        fstab.push_str(&format!(
-            "UUID={} /{sv} btrfs subvol=/@/{sv} 0 0\n",
-            uuids.root
-        ));
+    for (sv, mp) in SUBVOLS {
+        fstab.push_str(&format!("UUID={} /{mp} btrfs subvol={sv} 0 0\n", uuids.root));
     }
     if cfg.uefi {
         if let Some(esp) = &uuids.esp {
@@ -434,11 +418,13 @@ pub fn install_packages(cfg: &InstallConfig, target: &Path) -> Result<(), String
         "snapper",
         "openssl",
         "dinit-chimera-udev",
+        // Watcher migawek → automatyczne update-grub (vanilla-grub-watch).
+        "inotify-tools",
     ];
     // Przy kopii z nośnika (-l) jądro przychodzi z systemu live;
     // w instalacji sieciowej base-full jądra nie zawiera.
     if !is_local_live(cfg) {
-        pkgs.push("linux-lts");
+        pkgs.push("linux-stable");
     }
     pkgs.extend_from_slice(desktop_packages(cfg.desktop));
     if cfg.uefi {
@@ -468,7 +454,9 @@ pub fn configure_gpu(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
         std::collections::BTreeSet::new();
     let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for g in &cfg.gpus {
-        if g.driver.is_empty() {
+        // Pusty wybór = nic nie konfigurujemy; wariant zastrzeżony NVIDIA
+        // ma własny krok (firmware GSP i moduły idą z jego pakietów).
+        if g.driver.is_empty() || g.driver.starts_with("nvidia-") {
             continue;
         }
         log(&format!(
@@ -625,11 +613,14 @@ fn set_password(target: &Path, user: &str, pass: &str) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Snapper i GRUB w stylu openSUSE
+// Snapper, GRUB i rollback w stylu CachyOS (stały subvol=@)
 // ---------------------------------------------------------------------------
 
 const SNAPPER_ROOT_CONF: &str = include_str!("assets/snapper-root.conf");
 const GRUB_SNAPSHOTS: &str = include_str!("assets/80_snapshots.sh");
+const VANILLA_ROLLBACK: &str = include_str!("assets/vanilla-rollback.sh");
+const GRUB_WATCH: &str = include_str!("assets/vanilla-grub-watch.sh");
+const GRUB_WATCH_SVC: &str = include_str!("assets/vanilla-grub-watch.dinit");
 
 pub fn configure_snapper(target: &Path) -> Result<(), String> {
     let confdir = target.join("etc/snapper/configs");
@@ -658,22 +649,47 @@ pub fn configure_snapper(target: &Path) -> Result<(), String> {
     }
     fs::write(&reg, content).map_err(|e| format!("zapis rejestru snappera: {e}"))?;
 
+    // Migawka wyjściowa — punkt odniesienia dla pierwszego rollbacku.
+    // Miękko: w chroocie bywa zawodna, a brak nie blokuje instalacji.
+    run_in_soft(
+        target,
+        &["snapper", "-c", "root", "create", "-d", "instalacja systemu"],
+    );
+
     // Usługę snapperd włącza wspólny mechanizm enable_services.
     Ok(())
 }
 
 pub fn configure_grub(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
-    // /etc/default/grub pochodzi z pakietu Chimery; dokładamy przełącznik
-    // znany z openSUSE, od którego zależy generowanie wpisów migawek.
-    let def = target.join("etc/default/grub");
-    let mut content = fs::read_to_string(&def).unwrap_or_default();
-    if !content.contains("SUSE_BTRFS_SNAPSHOT_BOOTING") {
-        content.push_str(
-            "\n# vanilla-installer: rozruch migawek btrfs (konwencja openSUSE)\nSUSE_BTRFS_SNAPSHOT_BOOTING=\"true\"\n",
-        );
-        fs::write(&def, content).map_err(|e| format!("zapis /etc/default/grub: {e}"))?;
-    }
+    // Narzędzie rollbacku z CLI (podmiana subwolumenu @, model CachyOS)
+    // — z prawem do uruchamiania (755: wykonywalny dla wszystkich, zapis roota).
+    let bindir = target.join("usr/bin");
+    fs::create_dir_all(&bindir).map_err(|e| format!("mkdir /usr/bin: {e}"))?;
+    let rollback = bindir.join("vanilla-rollback");
+    fs::write(&rollback, VANILLA_ROLLBACK)
+        .map_err(|e| format!("zapis vanilla-rollback: {e}"))?;
+    run(&["chmod", "0755", &rollback.to_string_lossy()])?;
 
+    // Watcher automatycznie odświeżający menu GRUB po zmianie migawek
+    // (odpowiednik grub-btrfs.path z CachyOS). Skrypt + usługa dinit.
+    let watch = bindir.join("vanilla-grub-watch");
+    fs::write(&watch, GRUB_WATCH).map_err(|e| format!("zapis vanilla-grub-watch: {e}"))?;
+    run(&["chmod", "0755", &watch.to_string_lossy()])?;
+    let svc = target.join("usr/lib/dinit.d/vanilla-grub-watch");
+    fs::create_dir_all(svc.parent().unwrap()).map_err(|e| format!("mkdir dinit.d: {e}"))?;
+    fs::write(&svc, GRUB_WATCH_SVC).map_err(|e| format!("zapis usługi watchera: {e}"))?;
+    // Włączenie usługi dowiązaniem bezwzględnym w boot.d (jak enable_services).
+    let bootd = target.join("etc/dinit.d/boot.d");
+    fs::create_dir_all(&bootd).map_err(|e| format!("mkdir boot.d: {e}"))?;
+    let link = bootd.join("vanilla-grub-watch");
+    let _ = fs::remove_file(&link);
+    std::os::unix::fs::symlink("/usr/lib/dinit.d/vanilla-grub-watch", &link)
+        .map_err(|e| format!("dowiązanie usługi watchera: {e}"))?;
+
+    // Generator wpisów GRUB dla bootowania migawek read-only.
+    // Domyślny wpis GRUB montuje stały subvol=@ (grub-mkconfig doda
+    // rootflags=subvol=@ sam) — po rollbacku podmieniającym @ wstaje
+    // przywrócona zawartość bez regeneracji grub.cfg.
     let script = target.join("etc/grub.d/80_snapshots");
     fs::create_dir_all(script.parent().unwrap()).map_err(|e| format!("mkdir grub.d: {e}"))?;
     fs::write(&script, GRUB_SNAPSHOTS).map_err(|e| format!("zapis 80_snapshots: {e}"))?;

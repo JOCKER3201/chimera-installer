@@ -1,23 +1,18 @@
 #!/bin/sh
-# 80_snapshots — wpisy GRUB dla migawek btrfs w układzie w stylu openSUSE
-# (root w @/.snapshots/N/snapshot). Część vanilla-installer.
+# 80_snapshots — wpisy GRUB do bootowania migawek btrfs w trybie read-only
+# (układ w stylu CachyOS: migawki w osobnym subwolumenie @snapshots).
+# Część vanilla-installer; napisane od zera, bez kodu grub-btrfs/openSUSE.
 #
-# Skrypt napisany od zera na potrzeby tego instalatora; NIE zawiera kodu
-# z grub2-snapper-plugin ani innych skryptów openSUSE — odtwarza jedynie
-# zachowanie: podmenu z możliwością rozruchu każdej migawki.
+# Działa na WANILIOWYM GRUB: brak domyślnego subwolumenu (set-default) sprawia,
+# że GRUB czyta drzewo btrfs od top-level, więc ścieżki /@snapshots/N/snapshot/...
+# są bezpośrednio osiągalne. Każdy wpis ładuje własny kernel migawki i montuje
+# ją jako root read-only (rootflags=subvol=@snapshots/N/snapshot ro).
 #
-# Wpisy montują migawkę przez rootflags=subvol=..., w trybie ro.
+# To ścieżka ratunkowa „gdy system nie wstaje": bootujesz migawkę i z jej
+# konsoli wykonujesz `vanilla-rollback N`. Zwykły rollback robi się wprost
+# z działającego systemu, bez tego menu.
 set -e
 
-# Niełatany grub-mkconfig nie eksportuje obcych zmiennych do skryptów
-# w grub.d — flagę doczytujemy wprost z /etc/default/grub.
-if [ -z "${SUSE_BTRFS_SNAPSHOT_BOOTING}" ] && [ -f /etc/default/grub ]; then
-    . /etc/default/grub
-fi
-# Zgodnie z konwencją openSUSE: generacja tylko przy włączonej fladze.
-if [ "x${SUSE_BTRFS_SNAPSHOT_BOOTING}" != "xtrue" ]; then
-    exit 0
-fi
 [ -d /.snapshots ] || exit 0
 
 fstype="$(grub-probe --target=fs / 2>/dev/null || true)"
@@ -57,21 +52,22 @@ for snapdir in /.snapshots/*/; do
 
     if [ "$first" = 1 ]; then
         echo "80_snapshots: dodaję wpisy rozruchowe migawek btrfs" >&2
-        echo "submenu 'Chimera Linux — migawki btrfs' {"
+        echo "submenu 'Vanilla — migawki btrfs (read-only)' {"
         first=0
     fi
 
     title="Migawka $num"
     [ -n "$date" ] && title="$title — $date"
     [ -n "$desc" ] && title="$title — $desc"
+    subvol="@snapshots/$num/snapshot"
 
     echo "  menuentry '$title (kernel $kver)' {"
     echo "    insmod part_gpt"
     echo "    insmod part_msdos"
     echo "    insmod btrfs"
     echo "    search --no-floppy --fs-uuid --set=root $uuid"
-    echo "    linux /@/.snapshots/$num/snapshot/boot/vmlinuz-$kver root=UUID=$uuid ro rootflags=subvol=@/.snapshots/$num/snapshot ${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT}"
-    echo "    initrd /@/.snapshots/$num/snapshot/boot/$iname"
+    echo "    linux /$subvol/boot/vmlinuz-$kver root=UUID=$uuid ro rootflags=subvol=$subvol ${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT}"
+    echo "    initrd /$subvol/boot/$iname"
     echo "  }"
 done
 

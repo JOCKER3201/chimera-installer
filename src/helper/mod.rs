@@ -5,6 +5,7 @@
 
 mod cmd;
 mod install;
+mod nvidia;
 mod partition;
 
 use crate::config::{InstallConfig, Mode};
@@ -44,10 +45,14 @@ fn check_tools(cfg: &InstallConfig) -> Result<(), String> {
 }
 
 fn run_install(cfg: &InstallConfig) -> Result<(), String> {
-    let total: u32 = match cfg.mode {
+    let mut total: u32 = match cfg.mode {
         Mode::Live => 10,
         Mode::Foreign => 12,
     };
+    if nvidia::wants_proprietary(cfg) {
+        // Osobny krok budowy (przed partycjonowaniem) i instalacji do celu.
+        total += 2;
+    }
     let mut step = 0u32;
     let mut next = |text: &str| {
         step += 1;
@@ -59,6 +64,14 @@ fn run_install(cfg: &InstallConfig) -> Result<(), String> {
         return Err("helper nie działa jako root — uruchom przez pkexec".into());
     }
     check_tools(cfg)?;
+
+    // Eksperymentalny sterownik NVIDIA budujemy NA SAMYM POCZĄTKU, zanim
+    // dotkniemy dysku — porażka budowy (opcja jest robocza) nie zostawia
+    // wtedy użytkownika z wymazanym dyskiem.
+    if nvidia::wants_proprietary(cfg) {
+        next("Budowanie zastrzeżonego sterownika NVIDIA (cbuild)");
+        nvidia::build(cfg)?;
+    }
 
     if cfg.mode == Mode::Foreign {
         next("Pobieranie obrazu bazowego Chimera Linux");
@@ -94,6 +107,10 @@ fn run_install(cfg: &InstallConfig) -> Result<(), String> {
         install::write_fstab(&target, cfg, &uuids)?;
         install::install_packages(cfg, &target)?;
         install::configure_gpu(cfg, &target)?;
+        if nvidia::wants_proprietary(cfg) {
+            next("Instalacja zastrzeżonego sterownika NVIDIA do systemu");
+            nvidia::install(cfg, &target)?;
+        }
         install::configure_system(cfg, &target)?;
         install::enable_services(cfg, &target)?;
 
@@ -123,13 +140,17 @@ fn nix_is_root() -> bool {
         .unwrap_or(false)
 }
 
-pub fn main() -> i32 {
+fn set_helper_env() {
     // pkexec czyści środowisko; narzędzia wołamy po nazwie, więc PATH musi być pełny.
     std::env::set_var(
         "PATH",
         "/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin",
     );
     std::env::set_var("LC_ALL", "C");
+}
+
+pub fn main() -> i32 {
+    set_helper_env();
 
     let mut raw = String::new();
     if let Err(e) = std::io::stdin().read_to_string(&mut raw) {
