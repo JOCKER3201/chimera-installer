@@ -1,9 +1,11 @@
 // Właściwa instalacja: btrfs w układzie openSUSE, bootstrap (live/chroot),
 // konfiguracja systemu docelowego, snapper i GRUB.
 
-use super::cmd::{log, run, run_capture, run_in, run_in_soft, run_in_stdin, run_soft};
+use super::cmd::{
+    log, run, run_capture, run_in, run_in_capture_stdin, run_in_redacted, run_in_soft, run_soft,
+};
 use super::partition::{fs_uuid, TargetParts};
-use crate::config::{InstallConfig, Mode};
+use crate::config::{Desktop, InstallConfig, Mode, Source};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -309,15 +311,18 @@ pub fn teardown_chroot_binds(root: &Path) {
 pub fn bootstrap(cfg: &InstallConfig) -> Result<(), String> {
     match cfg.mode {
         Mode::Live => {
-            // Najpierw z lokalnego repozytorium nośnika live; gdy go brak,
-            // chimera-bootstrap w trybie sieciowym.
-            if let Err(e) = run(&["chimera-bootstrap", "-l", "/media/root"]) {
-                log(&format!(
-                    "instalacja z repozytorium lokalnego nie powiodła się ({e}); próbuję z sieci"
-                ));
-                run(&["chimera-bootstrap", "/media/root"])?;
+            // -f: cel jest celowo „niepusty” — układ subwolumenów jest już
+            // zamontowany, a kontrola pustości potyka się o info.xml migawki.
+            match cfg.source {
+                Source::Local => run(&["chimera-bootstrap", "-f", "-l", "/media/root"])
+                    .map_err(|e| {
+                        format!(
+                            "{e}; instalacja lokalna wymaga repozytorium na nośniku — \
+                             spróbuj instalacji z sieci"
+                        )
+                    }),
+                Source::Network => run(&["chimera-bootstrap", "-f", "/media/root"]),
             }
-            Ok(())
         }
         Mode::Foreign => {
             let stage = Path::new(STAGE_DIR);
@@ -328,7 +333,8 @@ pub fn bootstrap(cfg: &InstallConfig) -> Result<(), String> {
             run_in(stage, &["apk", "add", "chimera-install-scripts"])?;
             // Zostawiamy montowania dev/proc/sys stage'a — target jest pod nim
             // i zaraz będziemy chrootować się do targetu bezpośrednio z hosta.
-            run_in(stage, &["chimera-bootstrap", "/media/root"])
+            // -f jak w trybie live: zamontowany układ subwolumenów to nie błąd.
+            run_in(stage, &["chimera-bootstrap", "-f", "/media/root"])
         }
     }
 }
@@ -375,23 +381,148 @@ pub fn write_fstab(target: &Path, cfg: &InstallConfig, uuids: &Uuids) -> Result<
     fs::write(target.join("etc/fstab"), fstab).map_err(|e| format!("zapis fstab: {e}"))
 }
 
+/// Pakiety pulpitu ponad base-full (ustalenia floty, zweryfikowane w cports).
+/// gdm/sddm są zależnościami metapakietów — jawnie dla pewności (idempotentne).
+fn desktop_packages(d: Desktop) -> &'static [&'static str] {
+    match d {
+        Desktop::Base => &[],
+        Desktop::Gnome => &["gnome", "gdm", "networkmanager"],
+        Desktop::Kde => &["plasma-desktop", "sddm", "networkmanager"],
+    }
+}
+
+/// Mikrokod CPU wg producenta — base-full go nie zawiera.
+fn cpu_ucode_package() -> Option<&'static str> {
+    let info = fs::read_to_string("/proc/cpuinfo").ok()?;
+    if info.contains("GenuineIntel") {
+        Some("ucode-intel")
+    } else if info.contains("AuthenticAMD") {
+        Some("ucode-amd")
+    } else {
+        None
+    }
+}
+
+fn is_local_live(cfg: &InstallConfig) -> bool {
+    cfg.mode == Mode::Live && cfg.source == Source::Local
+}
+
 pub fn install_packages(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
     // Aktualizacja indeksów może się nie udać offline — to nie powód do przerwania.
     run_in_soft(target, &["apk", "update"]);
     run_in_soft(target, &["apk", "upgrade", "--available"]);
-    // Zgodnie z dokumentacją: pozostałość po nośniku live wylatuje, jeśli jest.
-    run_in_soft(
-        target,
-        &["sh", "-c", "apk info -e base-live >/dev/null 2>&1 && apk del base-live || true"],
-    );
+    if is_local_live(cfg) {
+        // base-live trafia do celu wyłącznie przy kopii z nośnika (-l).
+        run_in_soft(
+            target,
+            &["sh", "-c", "apk info -e base-live >/dev/null 2>&1 && apk del base-live || true"],
+        );
+    }
 
-    let mut pkgs: Vec<&str> = vec!["apk", "add", "linux-lts", "btrfs-progs", "snapper"];
+    // Snapper jest w repozytorium „user” cports — świeży system ma tylko
+    // „main”, więc najpierw dokładamy wpis repozytorium i odświeżamy indeks.
+    run_in(target, &["apk", "add", "chimera-repo-user"])?;
+    run_in_soft(target, &["apk", "update"]);
+
+    // openssl — hashowanie haseł (zob. set_password);
+    // dinit-chimera-udev — bez niego instalacja sieciowa zostaje z
+    // dinit-chimera-device-none (brak udevd); pakiet sam włącza swoją usługę.
+    let mut pkgs: Vec<&str> = vec![
+        "apk",
+        "add",
+        "btrfs-progs",
+        "snapper",
+        "openssl",
+        "dinit-chimera-udev",
+    ];
+    // Przy kopii z nośnika (-l) jądro przychodzi z systemu live;
+    // w instalacji sieciowej base-full jądra nie zawiera.
+    if !is_local_live(cfg) {
+        pkgs.push("linux-lts");
+    }
+    pkgs.extend_from_slice(desktop_packages(cfg.desktop));
     if cfg.uefi {
         pkgs.extend_from_slice(&["grub-x86_64-efi", "efibootmgr"]);
     } else {
         pkgs.push("grub-i386-pc");
     }
-    run_in(target, &pkgs)
+    run_in(target, &pkgs)?;
+
+    // Miękko: brak mikrokodu nie blokuje instalacji (np. lokalnie bez sieci);
+    // initramfs przegeneruje się później w kroku GRUB-a.
+    if let Some(ucode) = cpu_ucode_package() {
+        run_in_soft(target, &["apk", "add", ucode]);
+    }
+    Ok(())
+}
+
+/// Usługi dinit wymagające RĘCZNEGO włączenia (ustalenia floty):
+/// dbus/elogind/chrony/turnstiled/udevd/pipewire są włączane domyślnie
+/// przez podpakiety *-dinit-links i NIE wolno ich dublować.
+/// Jeden demon sieci naraz: dhcpcd dla base, NetworkManager dla pulpitów.
+fn services_to_enable(cfg: &InstallConfig) -> Vec<&'static str> {
+    let mut v = vec!["syslog-ng", "snapper"];
+    match cfg.desktop {
+        Desktop::Base => v.push("dhcpcd"),
+        Desktop::Gnome => v.extend_from_slice(&["networkmanager", "gdm"]),
+        Desktop::Kde => v.extend_from_slice(&["networkmanager", "sddm"]),
+    }
+    v
+}
+
+/// Odpowiednik `dinitctl enable` działający w chroocie (dinitctl wymaga
+/// żywego demona): dowiązanie w /etc/dinit.d/boot.d/ wskazujące na plik
+/// usługi. Cel MUSI być niezwisający — dinit przy skanowaniu waits-for.d
+/// pomija wpisy, których nie da się dostatować (sprawdzone na żywym
+/// systemie: `../nazwa` bez /etc/dinit.d/nazwa NIE jest ładowane,
+/// bezwzględne /usr/lib/dinit.d/nazwa działa).
+pub fn enable_services(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
+    let mut wanted: std::collections::BTreeSet<String> = services_to_enable(cfg)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+
+    // Tryb live: stan włączeń przenosi się z nośnika 1:1 — wszystko, co jest
+    // w /etc/dinit.d/boot.d działającego live (SDDM, NetworkManager itd.),
+    // ma być włączone także w systemie docelowym. Usługi czysto live'owe
+    // odfiltruje bezpiecznik niżej (po `apk del base-live` nie mają już
+    // plików usług w celu).
+    if cfg.mode == Mode::Live {
+        if let Ok(entries) = fs::read_dir("/etc/dinit.d/boot.d") {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if !name.starts_with('.') {
+                    wanted.insert(name);
+                }
+            }
+        }
+    }
+    // Dokładnie jeden demon sieci; NetworkManager ma pierwszeństwo nad dhcpcd.
+    if wanted.contains("networkmanager") {
+        wanted.remove("dhcpcd");
+    }
+
+    let bootd = target.join("etc/dinit.d/boot.d");
+    fs::create_dir_all(&bootd).map_err(|e| format!("mkdir boot.d: {e}"))?;
+    for name in &wanted {
+        let name = name.as_str();
+        if !target.join("usr/lib/dinit.d").join(name).exists() {
+            log(&format!(
+                "OSTRZEŻENIE: brak pliku usługi {name} w /usr/lib/dinit.d — pomijam włączenie"
+            ));
+            continue;
+        }
+        if target.join("usr/lib/dinit.d/boot.d").join(name).exists() {
+            log(&format!("usługa {name} jest już włączona domyślnie (dinit-links) — pomijam"));
+            continue;
+        }
+        let link = bootd.join(name);
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink(format!("/usr/lib/dinit.d/{name}"), &link)
+            .map_err(|e| format!("dowiązanie usługi {name}: {e}"))?;
+        log(&format!("włączono usługę dinit: {name}"));
+    }
+    Ok(())
 }
 
 pub fn configure_system(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
@@ -406,17 +537,42 @@ pub fn configure_system(cfg: &InstallConfig, target: &Path) -> Result<(), String
     }
 
     run_in(target, &["useradd", "-m", "-G", "wheel", &cfg.username])?;
-    run_in_stdin(
-        target,
-        &["chpasswd"],
-        &format!("{}:{}\n", cfg.username, cfg.user_password),
-        true,
-    )?;
+    set_password(target, &cfg.username, &cfg.user_password)?;
     match &cfg.root_password {
-        Some(pass) => run_in_stdin(target, &["chpasswd"], &format!("root:{pass}\n"), true)?,
+        Some(pass) => set_password(target, "root", pass)?,
         None => log("konto roota pozostaje zablokowane (administracja: doas przez grupę wheel)"),
     }
     Ok(())
+}
+
+/// Ustawia hasło użytkownika w systemie docelowym.
+///
+/// chpasswd z shadow na Chimerze kończy się kodem 0 NIE zapisując hasła
+/// (brak stosu PAM dla chpasswd — wpis zostaje zablokowany „!”), więc hash
+/// SHA-512-crypt liczymy openssl-em (hasło idzie przez stdin) i wpisujemy
+/// przez `usermod -p`, a na końcu sprawdzamy, że wpis naprawdę wylądował.
+fn set_password(target: &Path, user: &str, pass: &str) -> Result<(), String> {
+    let hash = run_in_capture_stdin(
+        target,
+        &["openssl", "passwd", "-6", "-stdin"],
+        &format!("{pass}\n"),
+    )?;
+    let hash = hash.trim().to_string();
+    if !hash.starts_with("$6$") {
+        return Err(format!(
+            "openssl nie zwrócił hasha SHA-512 dla użytkownika {user}"
+        ));
+    }
+    run_in_redacted(target, &["usermod", "-p", &hash, user], 2)?;
+    run_in(
+        target,
+        &[
+            "sh",
+            "-c",
+            &format!("grep -q '^{user}:\\$6\\$' /etc/shadow"),
+        ],
+    )
+    .map_err(|_| format!("hasło użytkownika {user} nie zostało zapisane w /etc/shadow"))
 }
 
 // ---------------------------------------------------------------------------
@@ -453,17 +609,7 @@ pub fn configure_snapper(target: &Path) -> Result<(), String> {
     }
     fs::write(&reg, content).map_err(|e| format!("zapis rejestru snappera: {e}"))?;
 
-    // Usługa snapperd (dinit): dowiązanie jak po `dinitctl enable snapper`.
-    let bootd = target.join("etc/dinit.d/boot.d");
-    fs::create_dir_all(&bootd).map_err(|e| format!("mkdir boot.d: {e}"))?;
-    if target.join("usr/lib/dinit.d/snapper").exists() {
-        let link = bootd.join("snapper");
-        let _ = fs::remove_file(&link);
-        std::os::unix::fs::symlink("/usr/lib/dinit.d/snapper", &link)
-            .map_err(|e| format!("dowiązanie usługi snapper: {e}"))?;
-    } else {
-        log("OSTRZEŻENIE: pakiet snappera nie dostarcza usługi dinit — pomijam włączenie");
-    }
+    // Usługę snapperd włącza wspólny mechanizm enable_services.
     Ok(())
 }
 

@@ -68,9 +68,7 @@ fn display_of(args: &[&str]) -> String {
     args.join(" ")
 }
 
-/// Uruchamia polecenie, strumieniując całe wyjście do logu.
-pub fn run(args: &[&str]) -> Result<(), String> {
-    let display = display_of(args);
+fn run_with_display(args: &[&str], display: &str) -> Result<(), String> {
     log(&format!("$ {display}"));
     let child = Command::new(args[0])
         .args(&args[1..])
@@ -79,7 +77,12 @@ pub fn run(args: &[&str]) -> Result<(), String> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("nie można uruchomić `{display}`: {e}"))?;
-    stream_child(child, &display)
+    stream_child(child, display)
+}
+
+/// Uruchamia polecenie, strumieniując całe wyjście do logu.
+pub fn run(args: &[&str]) -> Result<(), String> {
+    run_with_display(args, &display_of(args))
 }
 
 /// Jak `run`, ale podaje `input` na stdin (sfdisk, chpasswd).
@@ -136,12 +139,53 @@ pub fn run_in(root: &Path, args: &[&str]) -> Result<(), String> {
     run(&full)
 }
 
-/// Jak `run_in`, ale z przekazaniem stdin.
-pub fn run_in_stdin(root: &Path, args: &[&str], input: &str, secret: bool) -> Result<(), String> {
+/// Jak `run_in`, ale argument o indeksie `hide` (licząc w `args`) jest
+/// w logu zastąpiony znacznikiem — do przekazywania hashy haseł.
+pub fn run_in_redacted(root: &Path, args: &[&str], hide: usize) -> Result<(), String> {
     let root_s = root.to_string_lossy().to_string();
     let mut full: Vec<&str> = vec!["chroot", &root_s];
     full.extend_from_slice(args);
-    run_stdin(&full, input, secret)
+    let display = full
+        .iter()
+        .enumerate()
+        .map(|(i, a)| if i == hide + 2 { "(ukryte)" } else { a })
+        .collect::<Vec<_>>()
+        .join(" ");
+    run_with_display(&full, &display)
+}
+
+/// Uruchamia polecenie w chroocie z wejściem na stdin i zwraca jego stdout.
+/// Treść wejścia nie trafia do logu (hasła).
+pub fn run_in_capture_stdin(root: &Path, args: &[&str], input: &str) -> Result<String, String> {
+    let root_s = root.to_string_lossy().to_string();
+    let mut full: Vec<&str> = vec!["chroot", &root_s];
+    full.extend_from_slice(args);
+    let display = display_of(&full);
+    log(&format!("$ {display}  (dane wejściowe ukryte)"));
+    let mut child = Command::new(full[0])
+        .args(&full[1..])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("nie można uruchomić `{display}`: {e}"))?;
+    {
+        let mut stdin = child.stdin.take().ok_or("brak stdin procesu potomnego")?;
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|e| format!("zapis na stdin `{display}` nie powiódł się: {e}"))?;
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("oczekiwanie na `{display}` nie powiodło się: {e}"))?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !stderr.trim().is_empty() {
+        log(stderr.trim());
+    }
+    if !out.status.success() {
+        return Err(format!("`{display}` zakończyło się kodem {}", out.status));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 /// Wariant `run`, którego niepowodzenie jest tylko ostrzeżeniem w logu.

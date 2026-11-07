@@ -1,7 +1,7 @@
 // Podsumowanie planu instalacji i ostateczne potwierdzenie.
 
 use super::{progress_page, wizard_page, App};
-use crate::config::{format_gib, InstallConfig, Mode, Strategy, SECTOR};
+use crate::config::{format_gib, Desktop, InstallConfig, Mode, Source, Strategy, SECTOR};
 use adw::prelude::*;
 use std::rc::Rc;
 
@@ -16,6 +16,8 @@ fn build_config(app: &Rc<App>) -> InstallConfig {
     let choice = d.choice.clone().expect("brak wyboru dysku");
     InstallConfig {
         mode: d.mode.expect("brak trybu"),
+        source: d.source.unwrap_or(Source::Network),
+        desktop: d.desktop.unwrap_or(Desktop::Base),
         disk: choice.disk.path.clone(),
         strategy: choice.strategy,
         uefi: crate::disks::host_is_uefi(),
@@ -43,6 +45,21 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         match cfg.mode {
             Mode::Live => "z nośnika live Chimery (chimera-bootstrap)",
             Mode::Foreign => "z innego systemu (obraz bazowy + chroot w /tmp/chimera-linux)",
+        },
+    ));
+    list.append(&row(
+        "Źródło pakietów",
+        match cfg.source {
+            Source::Local => "lokalne (z nośnika live)",
+            Source::Network => "sieciowe (repo.chimera-linux.org)",
+        },
+    ));
+    list.append(&row(
+        "Wariant systemu",
+        match cfg.desktop {
+            Desktop::Base => "base (konsola)",
+            Desktop::Gnome => "GNOME (z GDM)",
+            Desktop::Kde => "KDE Plasma (z SDDM)",
         },
     ));
     list.append(&row("Dysk docelowy", &cfg.disk));

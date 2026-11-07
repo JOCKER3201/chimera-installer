@@ -13,6 +13,26 @@ pub enum Mode {
     Foreign,
 }
 
+/// Źródło pakietów przy instalacji z nośnika live.
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Source {
+    /// Repozytorium lokalne nośnika (chimera-bootstrap -l); tylko base-full.
+    Local,
+    /// Repozytorium sieciowe; umożliwia wybór wariantu systemu.
+    Network,
+}
+
+/// Wariant instalowanego systemu (tylko źródło sieciowe).
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Desktop {
+    /// Sam system bazowy (konsola).
+    Base,
+    Gnome,
+    Kde,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Strategy {
@@ -26,6 +46,9 @@ pub enum Strategy {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub mode: Mode,
+    /// W trybie z innego systemu zawsze Network.
+    pub source: Source,
+    pub desktop: Desktop,
     /// Ścieżka dysku docelowego, np. /dev/sda albo /dev/nvme0n1.
     pub disk: String,
     pub strategy: Strategy,

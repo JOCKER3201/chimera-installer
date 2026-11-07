@@ -1,12 +1,14 @@
 // GUI instalatora: libadwaita, nawigacja stronami kreatora.
 
+mod desktop_page;
 mod disk_page;
 mod mode_page;
 mod progress_page;
+mod source_page;
 mod summary_page;
 mod user_page;
 
-use crate::config::{Mode, Strategy};
+use crate::config::{Desktop, Mode, Source, Strategy};
 use crate::disks::DiskInfo;
 use adw::prelude::*;
 use std::cell::RefCell;
@@ -25,6 +27,8 @@ pub struct DiskChoice {
 #[derive(Default)]
 pub struct Draft {
     pub mode: Option<Mode>,
+    pub source: Option<Source>,
+    pub desktop: Option<Desktop>,
     pub choice: Option<DiskChoice>,
     pub hostname: String,
     pub username: String,

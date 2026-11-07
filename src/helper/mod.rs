@@ -88,12 +88,13 @@ fn run_install(cfg: &InstallConfig) -> Result<(), String> {
     let res = (|| -> Result<(), String> {
         install::bootstrap(cfg)?;
 
-        next("Konfiguracja systemu (fstab, użytkownicy, strefa czasowa)");
+        next("Konfiguracja systemu (fstab, użytkownicy, usługi dinit)");
         install::setup_chroot_binds(&target)?;
         let uuids = install::read_uuids(&parts)?;
         install::write_fstab(&target, cfg, &uuids)?;
         install::install_packages(cfg, &target)?;
         install::configure_system(cfg, &target)?;
+        install::enable_services(cfg, &target)?;
 
         next("Konfiguracja snappera (jak w openSUSE)");
         install::configure_snapper(&target)?;

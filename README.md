@@ -9,13 +9,29 @@ oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
 ## Co robi
 
 * **Dwa tryby instalacji** (wybierane zaraz po uruchomieniu):
-  * **z nośnika live Chimery** — używa `chimera-bootstrap -l` (z awaryjnym
-    przejściem na instalację sieciową),
+  * **z nośnika live Chimery** — z wyborem źródła pakietów:
+    * *lokalnie* (`chimera-bootstrap -f -l`) — wierna kopia systemu live
+      (razem z pulpitem nośnika), jądro dziedziczone z nośnika; usługi
+      włączone na live (`/etc/dinit.d/boot.d`) są odwzorowywane w systemie
+      docelowym; snapper i mikrokod CPU są dobierane z sieci,
+    * *z sieci* (`chimera-bootstrap -f`) — najnowsze pakiety z repozytorium
+      oraz wybór wariantu systemu: **base / GNOME / KDE Plasma**,
   * **z innego systemu** — pobiera najnowszy obraz
     `chimera-linux-<arch>-ROOTFS-<data>-bootstrap.tar.gz` z
     `repo.chimera-linux.org` (z weryfikacją SHA-256), rozpakowuje go do
     `/tmp/chimera-linux`, a następnie przez **chroot** uruchamia w nim
-    `chimera-bootstrap` na docelowym dysku.
+    `chimera-bootstrap` na docelowym dysku; działa zawsze jak instalacja
+    sieciowa (z wyborem base / GNOME / KDE).
+* **System gotowy po pierwszym rozruchu** — usługi dinit włączane są
+  w chroocie dowiązaniami w `/etc/dinit.d/boot.d/` (dokładnie tak, jak robi
+  to `dinitctl enable`, który w chroocie nie działa — wymaga żywego demona):
+  `syslog-ng`, demon sieci (`dhcpcd` dla base, `networkmanager` dla
+  pulpitów), menedżer logowania (`gdm`/`sddm`) i `snapper`. Usług włączanych
+  domyślnie przez pakiety `*-dinit-links` (dbus, elogind, chrony,
+  turnstiled, udevd, pipewire/wireplumber per-user) instalator nie dubluje.
+  Do instalacji sieciowej dokładany jest jawnie `dinit-chimera-udev`
+  (base-full zostawia atrapę `device-none` bez udevd) oraz mikrokod CPU
+  (`ucode-amd`/`ucode-intel` wg procesora).
 * **Proste partycjonowanie** — wybiera się tylko dysk:
   * dysk pusty → instalacja na całym dysku (GPT; na UEFI partycja ESP 1 GiB,
     na BIOS partycja „BIOS boot" 1 MiB),
@@ -68,9 +84,12 @@ instalacji. W systemie docelowym tworzony jest użytkownik w grupie `wheel`
 (administracja przez `doas`, zgodnie z domyślną konfiguracją Chimery);
 konto roota można zablokować, zostawiając puste hasło.
 
-Instalowane pakiety: `base-full` (przez `chimera-bootstrap`), `linux-lts`,
-`btrfs-progs`, `snapper`, `grub-x86_64-efi`+`efibootmgr` (UEFI) albo
-`grub-i386-pc` (BIOS).
+Instalowane pakiety: `base-full` (przez `chimera-bootstrap`), `linux-lts`
+(poza trybem lokalnym — tam jądro pochodzi z kopii live), `btrfs-progs`,
+`snapper` (repozytorium `user` dodawane automatycznie), `openssl`,
+`dinit-chimera-udev`, mikrokod CPU, `grub-x86_64-efi`+`efibootmgr` (UEFI)
+albo `grub-i386-pc` (BIOS); dla pulpitów dodatkowo `gnome`+`gdm` lub
+`plasma-desktop`+`sddm` oraz `networkmanager`.
 
 ## Przywracanie migawek (rollback)
 
@@ -90,9 +109,7 @@ jest poza zakresem instalatora.)
 * Tryb zaawansowanego partycjonowania to atrapa (zgodnie z założeniem).
 * Architektura docelowa: ta sama, na której działa instalator (testowane
   założenia: x86_64; tryb BIOS/UEFI wykrywany z hosta).
-* Brak tworzenia partycji wymiany (swap) i wyboru środowiska graficznego —
-  po instalacji system to `base-full` (konsola); desktop doinstalowuje się
-  przez `apk`.
+* Brak tworzenia partycji wymiany (swap).
 * Strefa czasowa i układ klawiatury nie mają osobnych stron — strefa jest
   polem tekstowym (domyślnie wykrywana z hosta).
 
