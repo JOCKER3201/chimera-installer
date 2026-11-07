@@ -62,10 +62,10 @@ oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
     `/.snapshots` i **automatycznie wykonuje `update-grub` po każdym
     utworzeniu lub usunięciu migawki** (odpowiednik `grub-btrfs.path`
     z CachyOS), więc podmenu migawek jest zawsze aktualne.
-* **Rollback z wiersza poleceń** — narzędzie `vanilla-rollback` (instalowane
+* **Rollback z wiersza poleceń** — narzędzie `chimera-rollback` (instalowane
   do `/usr/bin`) przywraca migawkę metodą podmiany `@` (jak CachyOS/Timeshift),
-  **bez GUI i bez sterownika graficznego**: `doas vanilla-rollback list`,
-  `doas vanilla-rollback <N>`, `reboot`. Działa z konsoli `tty`, przez SSH,
+  **bez GUI i bez sterownika graficznego**: `doas chimera-rollback list`,
+  `doas chimera-rollback <N>`, `reboot`. Działa z konsoli `tty`, przez SSH,
   z bootniętej migawki read-only, a nawet z live USB. `snapper rollback`
   (openSUSE, oparty na `set-default`) świadomie NIE jest używany — waniliowy
   GRUB by go zignorował.
@@ -135,8 +135,8 @@ podmienia *zawartość* `@` (model CachyOS/Timeshift):
 1. z działającego systemu albo z konsoli `tty` (gdy padł tylko pulpit),
    przez SSH, z bootniętej migawki read-only lub z live USB:
    ```sh
-   doas vanilla-rollback list      # numery dostępnych migawek
-   doas vanilla-rollback 7         # przywróć migawkę nr 7
+   doas chimera-rollback list      # numery dostępnych migawek
+   doas chimera-rollback 7         # przywróć migawkę nr 7
    reboot
    ```
 2. po restarcie GRUB montuje stały `subvol=@`, w którym jest już przywrócona
@@ -147,7 +147,7 @@ później usunąć). `snapper rollback` z openSUSE (oparty na `set-default`)
 celowo NIE jest używany, bo waniliowy GRUB by go zignorował.
 
 Ręcznie z live USB (gdy nie wstaje nawet konsola) — to samo, co robi
-`vanilla-rollback`:
+`chimera-rollback`:
 ```sh
 doas mount -o subvolid=5 /dev/<partycja-btrfs> /mnt
 doas mv /mnt/@ /mnt/@_backup

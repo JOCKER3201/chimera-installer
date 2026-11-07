@@ -618,7 +618,7 @@ fn set_password(target: &Path, user: &str, pass: &str) -> Result<(), String> {
 
 const SNAPPER_ROOT_CONF: &str = include_str!("assets/snapper-root.conf");
 const GRUB_SNAPSHOTS: &str = include_str!("assets/80_snapshots.sh");
-const VANILLA_ROLLBACK: &str = include_str!("assets/vanilla-rollback.sh");
+const CHIMERA_ROLLBACK: &str = include_str!("assets/chimera-rollback.sh");
 const GRUB_WATCH: &str = include_str!("assets/vanilla-grub-watch.sh");
 const GRUB_WATCH_SVC: &str = include_str!("assets/vanilla-grub-watch.dinit");
 
@@ -665,9 +665,9 @@ pub fn configure_grub(cfg: &InstallConfig, target: &Path) -> Result<(), String> 
     // — z prawem do uruchamiania (755: wykonywalny dla wszystkich, zapis roota).
     let bindir = target.join("usr/bin");
     fs::create_dir_all(&bindir).map_err(|e| format!("mkdir /usr/bin: {e}"))?;
-    let rollback = bindir.join("vanilla-rollback");
-    fs::write(&rollback, VANILLA_ROLLBACK)
-        .map_err(|e| format!("zapis vanilla-rollback: {e}"))?;
+    let rollback = bindir.join("chimera-rollback");
+    fs::write(&rollback, CHIMERA_ROLLBACK)
+        .map_err(|e| format!("zapis chimera-rollback: {e}"))?;
     run(&["chmod", "0755", &rollback.to_string_lossy()])?;
 
     // Watcher automatycznie odświeżający menu GRUB po zmianie migawek

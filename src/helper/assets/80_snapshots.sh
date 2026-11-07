@@ -9,7 +9,7 @@
 # ją jako root read-only (rootflags=subvol=@snapshots/N/snapshot ro).
 #
 # To ścieżka ratunkowa „gdy system nie wstaje": bootujesz migawkę i z jej
-# konsoli wykonujesz `vanilla-rollback N`. Zwykły rollback robi się wprost
+# konsoli wykonujesz `chimera-rollback N`. Zwykły rollback robi się wprost
 # z działającego systemu, bez tego menu.
 set -e
 
