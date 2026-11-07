@@ -18,6 +18,7 @@ fn build_config(app: &Rc<App>) -> InstallConfig {
         mode: d.mode.expect("brak trybu"),
         source: d.source.unwrap_or(Source::Network),
         desktop: d.desktop.unwrap_or(Desktop::Base),
+        gpus: d.gpus.clone(),
         disk: choice.disk.path.clone(),
         strategy: choice.strategy,
         uefi: crate::disks::host_is_uefi(),
@@ -62,6 +63,18 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
             Desktop::Kde => "KDE Plasma (z SDDM)",
         },
     ));
+    if !cfg.gpus.is_empty() {
+        let desc = cfg
+            .gpus
+            .iter()
+            .map(|g| {
+                let drv = if g.driver.is_empty() { "bez zmian" } else { &g.driver };
+                format!("{drv} ({}:{})", g.vendor, g.device)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        list.append(&row("Sterowniki GPU (otwarte)", &desc));
+    }
     list.append(&row("Dysk docelowy", &cfg.disk));
     match cfg.strategy {
         Strategy::Whole => list.append(&row(

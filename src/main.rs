@@ -9,6 +9,7 @@
 
 mod config;
 mod disks;
+mod gpu;
 mod helper;
 mod ui;
 
@@ -28,6 +29,20 @@ fn scan_debug() -> i32 {
         "tryb rozruchu hosta: {}",
         if disks::host_is_uefi() { "UEFI" } else { "BIOS" }
     );
+    for g in gpu::scan() {
+        println!(
+            "GPU {}: {} {}:{} — sterowniki: {}",
+            g.slot,
+            g.vendor_name,
+            g.vendor,
+            g.device,
+            g.options
+                .iter()
+                .map(|o| o.module)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     match disks::scan() {
         Ok(found) => {
             for d in &found {

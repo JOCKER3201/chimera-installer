@@ -1,7 +1,7 @@
 // Strona wyboru trybu instalacji — pierwsza po uruchomieniu.
 
-use super::{desktop_page, source_page, wizard_page, App};
-use crate::config::{Mode, Source};
+use super::{gpu_page, wizard_page, App};
+use crate::config::Mode;
 use adw::prelude::*;
 use std::path::Path;
 use std::rc::Rc;
@@ -41,17 +41,11 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     list.append(&live);
     list.append(&foreign);
 
+    // Po trybie zawsze strona GPU; ona kieruje dalej (live -> źródło
+    // pakietów, inny system -> od razu wariant, jako instalacja sieciowa).
     fn pick(app: &Rc<App>, mode: Mode) {
         app.draft.borrow_mut().mode = Some(mode);
-        match mode {
-            // Na live wybiera się źródło pakietów (lokalne/sieć)…
-            Mode::Live => app.nav.push(&source_page::build(app)),
-            // …a tryb z innego systemu działa zawsze jak sieciowy.
-            Mode::Foreign => {
-                app.draft.borrow_mut().source = Some(Source::Network);
-                app.nav.push(&desktop_page::build(app));
-            }
-        }
+        app.nav.push(&gpu_page::build(app));
     }
     {
         let app = app.clone();

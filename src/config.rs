@@ -43,12 +43,39 @@ pub enum Strategy {
     Free { start: u64, sectors: u64 },
 }
 
+/// Wybrany sterownik dla wykrytej karty graficznej.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GpuChoice {
+    /// Identyfikatory PCI hex, np. 10de / 2684 (do opisu w logu).
+    pub vendor: String,
+    pub device: String,
+    /// Nazwa modułu jądra ("" = nic nie konfigurujemy).
+    pub driver: String,
+}
+
+/// Podpakiety firmware-linux wymagane przez dany sterownik.
+pub fn driver_firmware(driver: &str) -> &'static [&'static str] {
+    match driver {
+        // nouveau na kartach Turing+ wymaga blobów GSP.
+        "nouveau" => &["firmware-linux-nvidia", "firmware-linux-nvidia-gsp"],
+        "amdgpu" => &["firmware-linux-amdgpu"],
+        "radeon" => &["firmware-linux-radeon"],
+        "i915" => &["firmware-linux-i915"],
+        // xe korzysta też z plików z katalogu i915 (podział w firmware-linux).
+        "xe" => &["firmware-linux-xe", "firmware-linux-i915"],
+        _ => &[],
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub mode: Mode,
     /// W trybie z innego systemu zawsze Network.
     pub source: Source,
     pub desktop: Desktop,
+    /// Sterowniki GPU wybrane na stronie wykrywania.
+    #[serde(default)]
+    pub gpus: Vec<GpuChoice>,
     /// Ścieżka dysku docelowego, np. /dev/sda albo /dev/nvme0n1.
     pub disk: String,
     pub strategy: Strategy,

@@ -93,6 +93,7 @@ fn run_install(cfg: &InstallConfig) -> Result<(), String> {
         let uuids = install::read_uuids(&parts)?;
         install::write_fstab(&target, cfg, &uuids)?;
         install::install_packages(cfg, &target)?;
+        install::configure_gpu(cfg, &target)?;
         install::configure_system(cfg, &target)?;
         install::enable_services(cfg, &target)?;
 

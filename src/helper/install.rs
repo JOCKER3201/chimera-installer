@@ -456,6 +456,55 @@ pub fn install_packages(cfg: &InstallConfig, target: &Path) -> Result<(), String
     Ok(())
 }
 
+/// Firmware i wczesny KMS dla sterowników wybranych na stronie GPU.
+/// Wszystko to otwarte sterowniki z jądra — instalujemy tylko bloby
+/// firmware (podpakiety firmware-linux) i dopisujemy moduły do initramfs;
+/// update-initramfs uruchamia się później, w kroku GRUB-a.
+pub fn configure_gpu(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
+    if cfg.gpus.is_empty() {
+        return Ok(());
+    }
+    let mut firmware: std::collections::BTreeSet<&'static str> =
+        std::collections::BTreeSet::new();
+    let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for g in &cfg.gpus {
+        if g.driver.is_empty() {
+            continue;
+        }
+        log(&format!(
+            "GPU {}:{} -> sterownik {} (otwarty, z jądra)",
+            g.vendor, g.device, g.driver
+        ));
+        firmware.extend(crate::config::driver_firmware(&g.driver));
+        modules.insert(g.driver.clone());
+    }
+
+    if !firmware.is_empty() {
+        // Miękko: firmware bywa niedostępny offline; system wstanie,
+        // a brak zostanie wyraźnie w dzienniku.
+        let mut args: Vec<&str> = vec!["apk", "add"];
+        args.extend(firmware.iter().copied());
+        run_in_soft(target, &args);
+    }
+
+    if !modules.is_empty() {
+        // Wczesny KMS: moduły w initramfs (format pliku: jeden moduł na linię).
+        let path = target.join("etc/initramfs-tools/modules");
+        fs::create_dir_all(path.parent().unwrap())
+            .map_err(|e| format!("mkdir initramfs-tools: {e}"))?;
+        let mut content = fs::read_to_string(&path).unwrap_or_default();
+        for m in &modules {
+            if !content.lines().any(|l| l.trim() == m) {
+                content.push_str(m);
+                content.push('\n');
+                log(&format!("wczesny KMS: moduł {m} dopisany do initramfs"));
+            }
+        }
+        fs::write(&path, content).map_err(|e| format!("zapis modules initramfs: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Usługi dinit wymagające RĘCZNEGO włączenia (ustalenia floty):
 /// dbus/elogind/chrony/turnstiled/udevd/pipewire są włączane domyślnie
 /// przez podpakiety *-dinit-links i NIE wolno ich dublować.
