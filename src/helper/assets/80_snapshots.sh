@@ -1,7 +1,7 @@
 #!/bin/sh
 # 80_snapshots — wpisy GRUB do bootowania migawek btrfs w trybie read-only
 # (układ w stylu CachyOS: migawki w osobnym subwolumenie @snapshots).
-# Część vanilla-installer; napisane od zera, bez kodu grub-btrfs/openSUSE.
+# Część chimera-installer; napisane od zera, bez kodu grub-btrfs/openSUSE.
 #
 # Działa na WANILIOWYM GRUB: brak domyślnego subwolumenu (set-default) sprawia,
 # że GRUB czyta drzewo btrfs od top-level, więc ścieżki /@snapshots/N/snapshot/...
@@ -52,7 +52,7 @@ for snapdir in /.snapshots/*/; do
 
     if [ "$first" = 1 ]; then
         echo "80_snapshots: dodaję wpisy rozruchowe migawek btrfs" >&2
-        echo "submenu 'Vanilla — migawki btrfs (read-only)' {"
+        echo "submenu 'Chimera — migawki btrfs (read-only)' {"
         first=0
     fi
 

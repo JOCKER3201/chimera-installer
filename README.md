@@ -1,4 +1,4 @@
-# vanilla-installer
+# chimera-installer
 
 Graficzny instalator **Chimera Linux** napisany w Rust (GTK4 + libadwaita),
 oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
@@ -58,7 +58,7 @@ oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
   * generator `/etc/grub.d/80_snapshots` dodaje podmenu z rozruchem migawek
     **read-only** (ścieżki od top-level `/@snapshots/N/snapshot/…`, działa na
     waniliowym GRUB) — ścieżka ratunkowa, gdy system nie wstaje,
-  * usługa dinit `vanilla-grub-watch` (przez `inotify-tools`) pilnuje
+  * usługa dinit `chimera-grub-watch` (przez `inotify-tools`) pilnuje
     `/.snapshots` i **automatycznie wykonuje `update-grub` po każdym
     utworzeniu lub usunięciu migawki** (odpowiednik `grub-btrfs.path`
     z CachyOS), więc podmenu migawek jest zawsze aktualne.
@@ -79,7 +79,7 @@ Wymagane: Rust (stable), `gtk4-devel`, `libadwaita-devel` (≥ 1.5).
 
 ```sh
 cargo build --release
-# binarka: target/release/vanilla-installer
+# binarka: target/release/chimera-installer
 ```
 
 Na systemach immutable (Bazzite/Silverblue) najwygodniej budować w
@@ -88,7 +88,7 @@ distroboksie z zainstalowanymi pakietami devel.
 ## Użycie
 
 ```sh
-./vanilla-installer
+./chimera-installer
 ```
 
 Instalator poprosi o autoryzację polkit dopiero w momencie rozpoczęcia

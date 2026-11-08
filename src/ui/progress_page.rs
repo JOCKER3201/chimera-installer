@@ -166,7 +166,7 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
     let log_file = std::cell::RefCell::new(std::fs::File::create(&log_path).ok());
     glib::spawn_future_local(async move {
         if let Some(f) = log_file.borrow_mut().as_mut() {
-            let _ = writeln!(f, "# dziennik instalacji vanilla-installer");
+            let _ = writeln!(f, "# dziennik instalacji chimera-installer");
         }
         let append_log = |text: &str| {
             let mut end = log_buffer.end_iter();
@@ -220,7 +220,7 @@ fn desktop_log_path() -> std::path::PathBuf {
                 let dir = v.trim().trim_matches('"').replace("$HOME", &home);
                 let p = std::path::PathBuf::from(dir);
                 if p.is_dir() {
-                    return p.join("vanilla-installer.log");
+                    return p.join("chimera-installer.log");
                 }
             }
         }
@@ -228,10 +228,10 @@ fn desktop_log_path() -> std::path::PathBuf {
     for d in ["Desktop", "Pulpit"] {
         let p = std::path::Path::new(&home).join(d);
         if p.is_dir() {
-            return p.join("vanilla-installer.log");
+            return p.join("chimera-installer.log");
         }
     }
-    std::path::Path::new(&home).join("vanilla-installer.log")
+    std::path::Path::new(&home).join("chimera-installer.log")
 }
 
 fn done_page(app: &Rc<App>, mode: crate::config::Mode) -> adw::NavigationPage {

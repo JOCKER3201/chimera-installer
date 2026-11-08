@@ -71,7 +71,7 @@ pub fn advanced_mode_stub(app: &Rc<App>) {
 
 pub fn run() -> i32 {
     let application = adw::Application::builder()
-        .application_id("io.github.jocker3201.VanillaInstaller")
+        .application_id("io.github.jocker3201.ChimeraInstaller")
         .build();
 
     application.connect_activate(|gtk_app| {

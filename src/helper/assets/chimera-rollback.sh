@@ -12,7 +12,7 @@
 # Migawki leżą w osobnym subwolumenie @snapshots (montowanym na /.snapshots),
 # więc podmiana @ ich nie narusza.
 #
-# Napisane od zera dla vanilla-installer (MIT). Używa tylko snappera i btrfs.
+# Napisane od zera dla chimera-installer (MIT). Używa tylko snappera i btrfs.
 set -eu
 
 TOP=/run/chimera-rollback

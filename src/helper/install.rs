@@ -43,7 +43,7 @@ const SUBVOLS: &[(&str, &str)] = &[
 /// @ przy rollbacku; inaczej migawki zniknęłyby razem ze starym @.
 const SNAPSHOTS_SUBVOL: &str = "@snapshots";
 
-const TOP_MOUNT: &str = "/run/vanilla-installer/top";
+const TOP_MOUNT: &str = "/run/chimera-installer/top";
 
 // ---------------------------------------------------------------------------
 // Krok: systemy plików i subwolumeny
@@ -348,7 +348,7 @@ pub fn read_uuids(parts: &TargetParts) -> Result<Uuids, String> {
 /// przez podmianę @ działa na waniliowym GRUB), /.snapshots jako osobny
 /// @snapshots, pozostałe subwolumeny jawnie, ESP na /boot/efi.
 pub fn write_fstab(target: &Path, cfg: &InstallConfig, uuids: &Uuids) -> Result<(), String> {
-    let mut fstab = String::from("# /etc/fstab — wygenerowane przez vanilla-installer\n");
+    let mut fstab = String::from("# /etc/fstab — wygenerowane przez chimera-installer\n");
     fstab.push_str(&format!("UUID={} / btrfs defaults,subvol=@ 0 0\n", uuids.root));
     fstab.push_str(&format!(
         "UUID={} /.snapshots btrfs subvol={SNAPSHOTS_SUBVOL} 0 0\n",
@@ -418,7 +418,7 @@ pub fn install_packages(cfg: &InstallConfig, target: &Path) -> Result<(), String
         "snapper",
         "openssl",
         "dinit-chimera-udev",
-        // Watcher migawek → automatyczne update-grub (vanilla-grub-watch).
+        // Watcher migawek → automatyczne update-grub (chimera-grub-watch).
         "inotify-tools",
     ];
     // Przy kopii z nośnika (-l) jądro przychodzi z systemu live;
@@ -619,8 +619,8 @@ fn set_password(target: &Path, user: &str, pass: &str) -> Result<(), String> {
 const SNAPPER_ROOT_CONF: &str = include_str!("assets/snapper-root.conf");
 const GRUB_SNAPSHOTS: &str = include_str!("assets/80_snapshots.sh");
 const CHIMERA_ROLLBACK: &str = include_str!("assets/chimera-rollback.sh");
-const GRUB_WATCH: &str = include_str!("assets/vanilla-grub-watch.sh");
-const GRUB_WATCH_SVC: &str = include_str!("assets/vanilla-grub-watch.dinit");
+const GRUB_WATCH: &str = include_str!("assets/chimera-grub-watch.sh");
+const GRUB_WATCH_SVC: &str = include_str!("assets/chimera-grub-watch.dinit");
 
 pub fn configure_snapper(target: &Path) -> Result<(), String> {
     let confdir = target.join("etc/snapper/configs");
@@ -672,18 +672,18 @@ pub fn configure_grub(cfg: &InstallConfig, target: &Path) -> Result<(), String> 
 
     // Watcher automatycznie odświeżający menu GRUB po zmianie migawek
     // (odpowiednik grub-btrfs.path z CachyOS). Skrypt + usługa dinit.
-    let watch = bindir.join("vanilla-grub-watch");
-    fs::write(&watch, GRUB_WATCH).map_err(|e| format!("zapis vanilla-grub-watch: {e}"))?;
+    let watch = bindir.join("chimera-grub-watch");
+    fs::write(&watch, GRUB_WATCH).map_err(|e| format!("zapis chimera-grub-watch: {e}"))?;
     run(&["chmod", "0755", &watch.to_string_lossy()])?;
-    let svc = target.join("usr/lib/dinit.d/vanilla-grub-watch");
+    let svc = target.join("usr/lib/dinit.d/chimera-grub-watch");
     fs::create_dir_all(svc.parent().unwrap()).map_err(|e| format!("mkdir dinit.d: {e}"))?;
     fs::write(&svc, GRUB_WATCH_SVC).map_err(|e| format!("zapis usługi watchera: {e}"))?;
     // Włączenie usługi dowiązaniem bezwzględnym w boot.d (jak enable_services).
     let bootd = target.join("etc/dinit.d/boot.d");
     fs::create_dir_all(&bootd).map_err(|e| format!("mkdir boot.d: {e}"))?;
-    let link = bootd.join("vanilla-grub-watch");
+    let link = bootd.join("chimera-grub-watch");
     let _ = fs::remove_file(&link);
-    std::os::unix::fs::symlink("/usr/lib/dinit.d/vanilla-grub-watch", &link)
+    std::os::unix::fs::symlink("/usr/lib/dinit.d/chimera-grub-watch", &link)
         .map_err(|e| format!("dowiązanie usługi watchera: {e}"))?;
 
     // Generator wpisów GRUB dla bootowania migawek read-only.

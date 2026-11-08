@@ -1,4 +1,4 @@
-// vanilla-installer — graficzny instalator Chimera Linux.
+// chimera-installer — graficzny instalator Chimera Linux.
 //
 // Jedna binarka, dwie role:
 //   bez argumentów      -> GUI (GTK4 + libadwaita),
