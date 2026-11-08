@@ -699,6 +699,7 @@ fn set_password(target: &Path, user: &str, pass: &str) -> Result<(), String> {
 
 const SNAPPER_ROOT_CONF: &str = include_str!("assets/snapper-root.conf");
 const GRUB_SNAPSHOTS: &str = include_str!("assets/80_snapshots.sh");
+const GRUB_FABRIC: &str = include_str!("assets/12_fabric.sh");
 const CHIMERA_ROLLBACK: &str = include_str!("assets/chimera-rollback.sh");
 const GRUB_WATCH: &str = include_str!("assets/chimera-grub-watch.sh");
 const GRUB_WATCH_SVC: &str = include_str!("assets/chimera-grub-watch.dinit");
@@ -729,15 +730,57 @@ pub fn configure_snapper(target: &Path) -> Result<(), String> {
         content.push_str("SNAPPER_CONFIGS=\"root\"\n");
     }
     fs::write(&reg, content).map_err(|e| format!("zapis rejestru snappera: {e}"))?;
+    // Migawkę wyjściową tworzy create_fabric_snapshot (snapper CLI w chroocie
+    // padłby — snapperd wymaga działającego D-Bus).
+    Ok(())
+}
 
-    // Migawka wyjściowa — punkt odniesienia dla pierwszego rollbacku.
-    // Miękko: w chroocie bywa zawodna, a brak nie blokuje instalacji.
-    run_in_soft(
-        target,
-        &["snapper", "-c", "root", "create", "-d", "instalacja systemu"],
+/// Migawka „fabryczna" po zakończonej instalacji — stan systemu jak po
+/// pierwszym uruchomieniu, do którego zawsze można wrócić. Tworzona wprost
+/// narzędziami btrfs (snapper CLI w chroocie nie działa bez D-Bus), z
+/// metadanymi, które snapper rozpoznaje. Zabezpieczenie przed usunięciem:
+/// puste `cleanup` (automatyczne czyszczenie snappera jej nie dotyka — usuwa
+/// tylko migawki z `cleanup=number`/timeline) oraz read-only.
+pub fn create_fabric_snapshot(target: &Path) -> Result<(), String> {
+    let snapdir = target.join(".snapshots/1");
+    fs::create_dir_all(&snapdir).map_err(|e| format!("mkdir .snapshots/1: {e}"))?;
+    let snapshot = snapdir.join("snapshot");
+    if snapshot.exists() {
+        log("migawka nr 1 już istnieje — pomijam migawkę fabryczną");
+        return Ok(());
+    }
+
+    // Read-only migawka subwolumenu roota (@, zamontowany jako target).
+    run(&[
+        "btrfs",
+        "subvolume",
+        "snapshot",
+        "-r",
+        &target.to_string_lossy(),
+        &snapshot.to_string_lossy(),
+    ])?;
+
+    let date = run_capture(&["date", "-u", "+%F %T"])?.trim().to_string();
+    let info = format!(
+        "<?xml version=\"1.0\"?>\n<snapshot>\n  <type>single</type>\n  <num>1</num>\n  \
+         <date>{date}</date>\n  <description>FABRIC</description>\n  \
+         <userdata>\n    <key>important</key>\n    <value>yes</value>\n  </userdata>\n</snapshot>\n"
     );
+    fs::write(snapdir.join("info.xml"), info)
+        .map_err(|e| format!("zapis info.xml migawki fabrycznej: {e}"))?;
 
-    // Usługę snapperd włącza wspólny mechanizm enable_services.
+    // Odśwież menu GRUB-a, żeby migawka FABRIC była od razu w podmenu
+    // (zanim katalog stanie się niemodyfikowalny).
+    run_in_soft(target, &["update-grub"]);
+
+    // Bariera przed usunięciem: chattr +i na katalogu migawki. Blokuje
+    // `snapper delete 1` / `btrfs subvolume delete` (parent niemodyfikowalny),
+    // dopóki ktoś świadomie nie zdejmie immutable (`doas chattr -i`). Root
+    // może to cofnąć — to utrudnienie, nie absolutna blokada. Miękko, bo
+    // gdyby narzędzie/FS nie wspierał, brak nie przerywa instalacji.
+    run_soft(&["chattr", "+i", &snapdir.to_string_lossy()]);
+
+    log("utworzono chronioną migawkę fabryczną „FABRIC” (nr 1, immutable)");
     Ok(())
 }
 
@@ -771,10 +814,15 @@ pub fn configure_grub(cfg: &InstallConfig, target: &Path) -> Result<(), String> 
     // Domyślny wpis GRUB montuje stały subvol=@ (grub-mkconfig doda
     // rootflags=subvol=@ sam) — po rollbacku podmieniającym @ wstaje
     // przywrócona zawartość bez regeneracji grub.cfg.
-    let script = target.join("etc/grub.d/80_snapshots");
-    fs::create_dir_all(script.parent().unwrap()).map_err(|e| format!("mkdir grub.d: {e}"))?;
+    let gdir = target.join("etc/grub.d");
+    fs::create_dir_all(&gdir).map_err(|e| format!("mkdir grub.d: {e}"))?;
+    let script = gdir.join("80_snapshots");
     fs::write(&script, GRUB_SNAPSHOTS).map_err(|e| format!("zapis 80_snapshots: {e}"))?;
     run(&["chmod", "755", &script.to_string_lossy()])?;
+    // Stały wpis migawki fabrycznej (obecny w każdej migawce, bo w @).
+    let fabric = gdir.join("12_fabric");
+    fs::write(&fabric, GRUB_FABRIC).map_err(|e| format!("zapis 12_fabric: {e}"))?;
+    run(&["chmod", "755", &fabric.to_string_lossy()])?;
 
     run_in(target, &["update-initramfs", "-c", "-k", "all"])?;
 

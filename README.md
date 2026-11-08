@@ -65,7 +65,21 @@ oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
   * usługa dinit `chimera-grub-watch` (przez `inotify-tools`) pilnuje
     `/.snapshots` i **automatycznie wykonuje `update-grub` po każdym
     utworzeniu lub usunięciu migawki** (odpowiednik `grub-btrfs.path`
-    z CachyOS), więc podmenu migawek jest zawsze aktualne.
+    z CachyOS), więc podmenu migawek jest zawsze aktualne,
+  * po zakończonej instalacji tworzona jest **chroniona migawka „FABRIC"**
+    (nr 1) — stan systemu jak po pierwszym uruchomieniu; robiona wprost
+    narzędziami btrfs (read-only), z pustym `cleanup`, więc automatyczne
+    czyszczenie snappera jej nie usuwa (`doas chimera-rollback 1` wraca do
+    stanu fabrycznego). Dodatkowo katalog migawki dostaje `chattr +i`, co
+    blokuje `snapper delete`/`btrfs subvolume delete`, dopóki ktoś świadomie
+    nie zdejmie immutable (`doas chattr -i /.snapshots/1`) — to utrudnienie,
+    nie absolutna blokada (root zawsze może je cofnąć). W **głównym menu** GRUB
+    pojawia się wpis **„Restore factory settings"** (generator
+    `/etc/grub.d/12_fabric`), który uruchamia migawkę FABRIC w trybie read-only
+    (podgląd stanu fabrycznego; trwałe przywrócenie z niej przez
+    `doas chimera-rollback 1`). Generator leży w `@`, więc jest w każdej
+    migawce — po dowolnym rollbacku, który przywraca `grub.cfg` razem z `@`,
+    wpis nadal powstaje; zawsze aktualny, bo migawka nr 1 jest niezmienna.
 * **Rollback z wiersza poleceń** — narzędzie `chimera-rollback` (instalowane
   do `/usr/bin`) przywraca migawkę metodą podmiany `@` (jak CachyOS/Timeshift),
   **bez GUI i bez sterownika graficznego**: `doas chimera-rollback list`,

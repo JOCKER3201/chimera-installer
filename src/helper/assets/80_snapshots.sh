@@ -26,6 +26,8 @@ for snapdir in /.snapshots/*/; do
     case "$num" in
         *[!0-9]*) continue ;;
     esac
+    # Migawkę nr 1 (FABRIC) obsługuje osobny, stały wpis 12_fabric.
+    [ "$num" = 1 ] && continue
     snap="${snapdir}snapshot"
     [ -d "$snap" ] || continue
 

@@ -46,8 +46,8 @@ fn check_tools(cfg: &InstallConfig) -> Result<(), String> {
 
 fn run_install(cfg: &InstallConfig) -> Result<(), String> {
     let mut total: u32 = match cfg.mode {
-        Mode::Live => 10,
-        Mode::Foreign => 12,
+        Mode::Live => 11,
+        Mode::Foreign => 13,
     };
     if nvidia::wants_proprietary(cfg) {
         // Osobny krok budowy (przed partycjonowaniem) i instalacji do celu.
@@ -119,6 +119,9 @@ fn run_install(cfg: &InstallConfig) -> Result<(), String> {
 
         next("Instalacja GRUB-a i initramfs");
         install::configure_grub(cfg, &target)?;
+
+        next("Tworzenie migawki fabrycznej (FABRIC)");
+        install::create_fabric_snapshot(&target)?;
         Ok(())
     })();
 
