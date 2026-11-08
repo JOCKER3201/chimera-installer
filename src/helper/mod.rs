@@ -91,11 +91,11 @@ fn run_install(cfg: &InstallConfig) -> Result<(), String> {
     next("Tworzenie systemów plików");
     install::make_filesystems(&parts)?;
 
-    next("Tworzenie subwolumenów btrfs (układ openSUSE)");
+    next("Tworzenie subwolumenów btrfs (układ CachyOS)");
     install::make_subvolumes(&parts)?;
 
-    next("Montowanie systemu docelowego");
-    let target = install::mount_target(cfg, &parts)?;
+    next("Montowanie systemu docelowego (migawka FABRIC)");
+    let target = install::mount_target(cfg, &parts, install::FABRIC_SUBVOL)?;
 
     next("Instalacja systemu bazowego (chimera-bootstrap)");
     let res = (|| -> Result<(), String> {
@@ -117,11 +117,16 @@ fn run_install(cfg: &InstallConfig) -> Result<(), String> {
         next("Konfiguracja snappera (jak w openSUSE)");
         install::configure_snapper(&target)?;
 
-        next("Instalacja GRUB-a i initramfs");
-        install::configure_grub(cfg, &target)?;
+        next("Initramfs i pliki rozruchowe (w migawce FABRIC)");
+        install::configure_grub_files(&target)?;
 
-        next("Tworzenie migawki fabrycznej (FABRIC)");
-        install::create_fabric_snapshot(&target)?;
+        // System jest kompletny w migawce FABRIC — klonujemy ją do stałego
+        // subwolumenu roota @, dopiero w nim instalujemy GRUB (prefix w ESP
+        // ma wskazywać @, nie migawkę) i na końcu blokujemy FABRIC.
+        next("Klonowanie FABRIC do @ i instalacja GRUB-a");
+        install::fabric_to_root(cfg, &parts, &target)?;
+        install::install_grub(cfg, &target)?;
+        install::lock_fabric(&target)?;
         Ok(())
     })();
 

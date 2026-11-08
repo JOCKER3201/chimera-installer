@@ -1,9 +1,11 @@
 #!/bin/sh
 # 12_fabric — stały, wyróżniony wpis GRUB uruchamiający chronioną migawkę
-# fabryczną FABRIC (nr 1) w trybie read-only. Leży w /etc/grub.d, czyli
+# fabryczną FABRIC (nr 1). Migawka jest zapisywalna, więc wstaje jak pełny
+# system (dinit remountuje / na rw — jak przy zwykłym rozruchu); `ro` niżej
+# to standardowy tryb startu, nie blokada. Skrypt leży w /etc/grub.d, czyli
 # w subwolumenie @, więc jest w KAŻDEJ migawce — dzięki temu po dowolnym
 # rollbacku (który przywraca grub.cfg razem z @) wpis FABRIC nadal powstaje.
-# Migawka nr 1 jest niemodyfikowalna (chattr +i) i nieusuwana (puste cleanup),
+# Migawka nr 1 jest nieusuwalna (chattr +i na katalogu, puste cleanup),
 # więc ten wpis jest zawsze aktualny. Część chimera-installer, napisane od zera.
 set -e
 

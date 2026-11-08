@@ -43,6 +43,11 @@ const SUBVOLS: &[(&str, &str)] = &[
 /// @ przy rollbacku; inaczej migawki zniknęłyby razem ze starym @.
 const SNAPSHOTS_SUBVOL: &str = "@snapshots";
 
+/// Migawka fabryczna FABRIC (nr 1) — subwolumen PIERWOTNY: system instaluje
+/// się wprost do niej, a @ powstaje na końcu instalacji jako jej migawka
+/// (`btrfs subvolume snapshot FABRIC → @`).
+pub const FABRIC_SUBVOL: &str = "@snapshots/1/snapshot";
+
 const TOP_MOUNT: &str = "/run/chimera-installer/top";
 
 // ---------------------------------------------------------------------------
@@ -66,9 +71,13 @@ pub fn make_subvolumes(parts: &TargetParts) -> Result<(), String> {
         let top = Path::new(TOP_MOUNT);
         let at = |s: &str| top.join(s).to_string_lossy().to_string();
 
-        // @ — stały subwolumen roota; @snapshots — osobny magazyn migawek.
-        run(&["btrfs", "subvolume", "create", &at("@")])?;
+        // @snapshots — osobny magazyn migawek. Celem instalacji jest migawka
+        // fabryczna FABRIC (@snapshots/1/snapshot); stały subwolumen roota @
+        // powstanie na końcu instalacji jako jej migawka (fabric_to_root).
         run(&["btrfs", "subvolume", "create", &at(SNAPSHOTS_SUBVOL)])?;
+        fs::create_dir_all(top.join(SNAPSHOTS_SUBVOL).join("1"))
+            .map_err(|e| format!("mkdir {SNAPSHOTS_SUBVOL}/1: {e}"))?;
+        run(&["btrfs", "subvolume", "create", &at(FABRIC_SUBVOL)])?;
 
         for (sv, _) in SUBVOLS {
             run(&["btrfs", "subvolume", "create", &at(sv)])?;
@@ -82,12 +91,18 @@ pub fn make_subvolumes(parts: &TargetParts) -> Result<(), String> {
     res
 }
 
-pub fn mount_target(cfg: &InstallConfig, parts: &TargetParts) -> Result<PathBuf, String> {
+/// Montuje układ docelowy z `root_subvol` jako /. Podczas instalacji jest to
+/// migawka FABRIC, po jej sklonowaniu do @ (fabric_to_root) — stały subvol=@,
+/// dokładnie tak, jak zamontuje go GRUB i fstab.
+pub fn mount_target(
+    cfg: &InstallConfig,
+    parts: &TargetParts,
+    root_subvol: &str,
+) -> Result<PathBuf, String> {
     let target = target_mount(cfg);
     let t = target.to_string_lossy().to_string();
     fs::create_dir_all(&target).map_err(|e| format!("mkdir {t}: {e}"))?;
-    // Root to STAŁY subvol=@ — dokładnie tak, jak zamontuje go GRUB i fstab.
-    run(&["mount", "-o", "subvol=@", &parts.root, &t])?;
+    run(&["mount", "-o", &format!("subvol={root_subvol}"), &parts.root, &t])?;
     run(&["chmod", "755", &t])?;
 
     // Osobny magazyn migawek najpierw, potem pozostałe subwolumeny.
@@ -600,6 +615,7 @@ pub fn configure_system(cfg: &InstallConfig, target: &Path) -> Result<(), String
     }
 
     configure_locale_keyboard(cfg, target)?;
+    write_machine_id(target)?;
 
     run_in(target, &["useradd", "-m", "-G", "wheel", &cfg.username])?;
     set_password(target, &cfg.username, &cfg.user_password)?;
@@ -616,6 +632,35 @@ pub fn configure_system(cfg: &InstallConfig, target: &Path) -> Result<(), String
     } else {
         log("utworzono dowiązanie /usr/bin/sudo → doas");
     }
+    Ok(())
+}
+
+/// /etc/machine-id tworzy normalnie dopiero pierwszy rozruch (early-machine-id),
+/// ale migawka FABRIC powstaje wcześniej — bootowana read-only nie ma już jak
+/// go dorobić (transient fallback dinit-chimera ubija kaskada po seedrng,
+/// który na ro pada), a bez niego nie wstaje stos sesji graficznej. Generujemy
+/// go więc przy instalacji; pierwszy rozruch zastaje niepusty plik i nie robi nic.
+fn write_machine_id(target: &Path) -> Result<(), String> {
+    let mid = target.join("etc/machine-id");
+    if fs::metadata(&mid).map(|m| m.len() > 0).unwrap_or(false) {
+        return Ok(());
+    }
+    // Spójność z identyfikatorem D-Bus: trigger apk pakietu dbus zdążył już
+    // zrobić `dbus-uuidgen --ensure`, więc jeśli jest, przejmujemy jego wartość.
+    let dbus_id = target.join("var/lib/dbus/machine-id");
+    let id = match fs::read_to_string(&dbus_id) {
+        Ok(s) if s.trim().len() == 32 => s.trim().to_string(),
+        _ => {
+            let mut buf = [0u8; 16];
+            let mut f = fs::File::open("/dev/urandom")
+                .map_err(|e| format!("otwarcie /dev/urandom: {e}"))?;
+            std::io::Read::read_exact(&mut f, &mut buf)
+                .map_err(|e| format!("odczyt /dev/urandom: {e}"))?;
+            buf.iter().map(|b| format!("{b:02x}")).collect()
+        }
+    };
+    fs::write(&mid, format!("{id}\n")).map_err(|e| format!("zapis /etc/machine-id: {e}"))?;
+    log("wygenerowano /etc/machine-id (normalnie powstaje dopiero przy pierwszym rozruchu)");
     Ok(())
 }
 
@@ -730,61 +775,84 @@ pub fn configure_snapper(target: &Path) -> Result<(), String> {
         content.push_str("SNAPPER_CONFIGS=\"root\"\n");
     }
     fs::write(&reg, content).map_err(|e| format!("zapis rejestru snappera: {e}"))?;
-    // Migawkę wyjściową tworzy create_fabric_snapshot (snapper CLI w chroocie
-    // padłby — snapperd wymaga działającego D-Bus).
+    // Metadane migawki wyjściowej (FABRIC) zapisuje fabric_to_root (snapper
+    // CLI w chroocie padłby — snapperd wymaga działającego D-Bus).
     Ok(())
 }
 
-/// Migawka „fabryczna" po zakończonej instalacji — stan systemu jak po
-/// pierwszym uruchomieniu, do którego zawsze można wrócić. Tworzona wprost
-/// narzędziami btrfs (snapper CLI w chroocie nie działa bez D-Bus), z
-/// metadanymi, które snapper rozpoznaje. Zabezpieczenie przed usunięciem:
-/// puste `cleanup` (automatyczne czyszczenie snappera jej nie dotyka — usuwa
-/// tylko migawki z `cleanup=number`/timeline) oraz read-only.
-pub fn create_fabric_snapshot(target: &Path) -> Result<(), String> {
-    let snapdir = target.join(".snapshots/1");
-    fs::create_dir_all(&snapdir).map_err(|e| format!("mkdir .snapshots/1: {e}"))?;
-    let snapshot = snapdir.join("snapshot");
-    if snapshot.exists() {
-        log("migawka nr 1 już istnieje — pomijam migawkę fabryczną");
-        return Ok(());
-    }
-
-    // Read-only migawka subwolumenu roota (@, zamontowany jako target).
-    run(&[
-        "btrfs",
-        "subvolume",
-        "snapshot",
-        "-r",
-        &target.to_string_lossy(),
-        &snapshot.to_string_lossy(),
-    ])?;
-
+/// Zwieńczenie modelu „system instalowany w migawce FABRIC": zapisuje jej
+/// metadane snappera, odmontowuje układ, klonuje FABRIC do stałego
+/// subwolumenu roota (`btrfs subvolume snapshot FABRIC → @`, zapisywalnie)
+/// i montuje układ ponownie z @ jako /. Ścieżka targetu się nie zmienia.
+/// FABRIC pozostaje zapisywalnym subwolumenem — migawka read-only nie
+/// wstawała do pulpitu (bez zapisu padały seedrng, machine-id i menedżer
+/// logowania; zweryfikowane na żywo). Metadane: puste `cleanup`, więc
+/// automatyczne czyszczenie snappera nie tyka migawki; info.xml piszemy
+/// sami, bo snapper CLI w chroocie padłby bez D-Bus.
+pub fn fabric_to_root(
+    cfg: &InstallConfig,
+    parts: &TargetParts,
+    target: &Path,
+) -> Result<(), String> {
     let date = run_capture(&["date", "-u", "+%F %T"])?.trim().to_string();
     let info = format!(
         "<?xml version=\"1.0\"?>\n<snapshot>\n  <type>single</type>\n  <num>1</num>\n  \
          <date>{date}</date>\n  <description>FABRIC</description>\n  \
          <userdata>\n    <key>important</key>\n    <value>yes</value>\n  </userdata>\n</snapshot>\n"
     );
-    fs::write(snapdir.join("info.xml"), info)
+    fs::write(target.join(".snapshots/1/info.xml"), info)
         .map_err(|e| format!("zapis info.xml migawki fabrycznej: {e}"))?;
 
-    // Odśwież menu GRUB-a, żeby migawka FABRIC była od razu w podmenu
-    // (zanim katalog stanie się niemodyfikowalny).
-    run_in_soft(target, &["update-grub"]);
+    // Przemontowanie FABRIC → @. Odmontowanie musi się powieść w całości,
+    // inaczej @ wylądowałby na zajętym punkcie montowania.
+    teardown_chroot_binds(target);
+    run(&["umount", "-R", &target.to_string_lossy()])?;
 
-    // Bariera przed usunięciem: chattr +i na katalogu migawki. Blokuje
-    // `snapper delete 1` / `btrfs subvolume delete` (parent niemodyfikowalny),
-    // dopóki ktoś świadomie nie zdejmie immutable (`doas chattr -i`). Root
-    // może to cofnąć — to utrudnienie, nie absolutna blokada. Miękko, bo
-    // gdyby narzędzie/FS nie wspierał, brak nie przerywa instalacji.
-    run_soft(&["chattr", "+i", &snapdir.to_string_lossy()]);
+    fs::create_dir_all(TOP_MOUNT).map_err(|e| format!("mkdir {TOP_MOUNT}: {e}"))?;
+    run(&["mount", "-o", "subvolid=5", &parts.root, TOP_MOUNT])?;
+    let top = Path::new(TOP_MOUNT);
+    let res = run(&[
+        "btrfs",
+        "subvolume",
+        "snapshot",
+        &top.join(FABRIC_SUBVOL).to_string_lossy(),
+        &top.join("@").to_string_lossy(),
+    ]);
+    run_soft(&["umount", TOP_MOUNT]);
+    res?;
 
-    log("utworzono chronioną migawkę fabryczną „FABRIC” (nr 1, immutable)");
+    mount_target(cfg, parts, "@")?;
+    setup_chroot_binds(target)?;
+    log("sklonowano migawkę fabryczną FABRIC do stałego subwolumenu roota @");
     Ok(())
 }
 
-pub fn configure_grub(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
+/// Blokada migawki fabrycznej — ostatni ruch instalacji: kopiuje świeżo
+/// wygenerowany /boot/grub z @ do FABRIC (po rollbacku do stanu fabrycznego
+/// @ musi mieć grub.cfg i moduły — GRUB czyta je z /@/boot/grub) i nakłada
+/// chattr +i na katalog migawki. Immutable na rodzicu blokuje
+/// `snapper delete 1`/`btrfs subvolume delete`, dopóki ktoś świadomie nie
+/// zrobi `doas chattr -i /.snapshots/1` — root może to cofnąć, więc to
+/// utrudnienie, nie absolutna blokada. chattr miękko: brak wsparcia nie
+/// przerywa instalacji.
+pub fn lock_fabric(target: &Path) -> Result<(), String> {
+    run(&[
+        "cp",
+        "-a",
+        &target.join("boot/grub").to_string_lossy(),
+        &target.join(".snapshots/1/snapshot/boot").to_string_lossy(),
+    ])?;
+    run_soft(&["chattr", "+i", &target.join(".snapshots/1").to_string_lossy()]);
+    log("zablokowano migawkę fabryczną „FABRIC” (nr 1; zdjęcie blokady: doas chattr -i /.snapshots/1)");
+    Ok(())
+}
+
+/// Pliki rozruchowe i initramfs — wykonywane jeszcze W MIGAWCE FABRIC,
+/// żeby stan fabryczny zawierał komplet (initramfs, generatory grub.d,
+/// narzędzia rollbacku). Sam grub-install/update-grub robi install_grub —
+/// dopiero po przełączeniu na @, inaczej prefix GRUB-a w ESP wskazywałby
+/// migawkę i update-grub głównego systemu nie miałby żadnego skutku.
+pub fn configure_grub_files(target: &Path) -> Result<(), String> {
     // Narzędzie rollbacku z CLI (podmiana subwolumenu @, model CachyOS)
     // — z prawem do uruchamiania (755: wykonywalny dla wszystkich, zapis roota).
     let bindir = target.join("usr/bin");
@@ -824,8 +892,12 @@ pub fn configure_grub(cfg: &InstallConfig, target: &Path) -> Result<(), String> 
     fs::write(&fabric, GRUB_FABRIC).map_err(|e| format!("zapis 12_fabric: {e}"))?;
     run(&["chmod", "755", &fabric.to_string_lossy()])?;
 
-    run_in(target, &["update-initramfs", "-c", "-k", "all"])?;
+    run_in(target, &["update-initramfs", "-c", "-k", "all"])
+}
 
+/// Instalacja GRUB-a do ESP/MBR i generacja grub.cfg — wykonywana w @
+/// (po fabric_to_root), żeby wbudowany prefix i wpis główny wskazywały @.
+pub fn install_grub(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
     if cfg.uefi {
         let args = [
             "grub-install",
