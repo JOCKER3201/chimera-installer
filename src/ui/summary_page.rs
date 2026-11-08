@@ -1,7 +1,7 @@
 // Podsumowanie planu instalacji i ostateczne potwierdzenie.
 
 use super::{progress_page, wizard_page, App};
-use crate::config::{format_gib, Desktop, InstallConfig, Mode, Source, Strategy, SECTOR};
+use crate::config::{format_gib, Desktop, Edition, InstallConfig, Mode, Source, Strategy, SECTOR};
 use adw::prelude::*;
 use std::rc::Rc;
 
@@ -18,6 +18,7 @@ fn build_config(app: &Rc<App>) -> InstallConfig {
         mode: d.mode.expect("brak trybu"),
         source: d.source.unwrap_or(Source::Network),
         desktop: d.desktop.unwrap_or(Desktop::Base),
+        edition: d.edition.unwrap_or(Edition::Full),
         gpus: d.gpus.clone(),
         disk: choice.disk.path.clone(),
         strategy: choice.strategy,
@@ -30,6 +31,10 @@ fn build_config(app: &Rc<App>) -> InstallConfig {
         user_password: d.user_password.clone(),
         root_password: d.root_password.clone(),
         timezone: d.timezone.clone(),
+        locale: if d.locale.is_empty() { "en_US.UTF-8".into() } else { d.locale.clone() },
+        kb_layout: if d.kb_layout.is_empty() { "us".into() } else { d.kb_layout.clone() },
+        kb_variant: d.kb_variant.clone(),
+        enable_ssh: d.enable_ssh,
     }
 }
 
@@ -55,12 +60,16 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
             Source::Network => "sieciowe (repo.chimera-linux.org)",
         },
     ));
+    let ed = match cfg.edition {
+        Edition::Base => "base, lekki",
+        Edition::Full => "full, pełny",
+    };
     list.append(&row(
         "Wariant systemu",
-        match cfg.desktop {
-            Desktop::Base => "base (konsola)",
-            Desktop::Gnome => "GNOME (z GDM)",
-            Desktop::Kde => "KDE Plasma (z SDDM)",
+        &match cfg.desktop {
+            Desktop::Base => "system bazowy (konsola)".to_string(),
+            Desktop::Gnome => format!("GNOME z GDM ({ed})"),
+            Desktop::Kde => format!("KDE Plasma z SDDM ({ed})"),
         },
     ));
     if !cfg.gpus.is_empty() {
@@ -119,6 +128,17 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
             if cfg.root_password.is_some() { "z hasłem" } else { "zablokowany" }),
     ));
     list.append(&row("Strefa czasowa", &cfg.timezone));
+    list.append(&row("Język", &cfg.locale));
+    let kb = if cfg.kb_variant.is_empty() {
+        cfg.kb_layout.clone()
+    } else {
+        format!("{} ({})", cfg.kb_layout, cfg.kb_variant)
+    };
+    list.append(&row("Układ klawiatury", &kb));
+    list.append(&row(
+        "Serwer SSH",
+        if cfg.enable_ssh { "włączony" } else { "wyłączony" },
+    ));
 
     let install = gtk::Button::builder()
         .label("Zainstaluj")

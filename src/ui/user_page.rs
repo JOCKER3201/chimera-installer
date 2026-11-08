@@ -1,26 +1,8 @@
-// Strona konta użytkownika i podstawowych ustawień systemu.
+// Strona konta użytkownika i roota.
 
 use super::{summary_page, wizard_page, App};
 use adw::prelude::*;
 use std::rc::Rc;
-
-fn detect_timezone() -> String {
-    std::fs::read_link("/etc/localtime")
-        .ok()
-        .and_then(|p| {
-            let s = p.to_string_lossy().to_string();
-            s.split("zoneinfo/").nth(1).map(|z| z.to_string())
-        })
-        .unwrap_or_else(|| "Europe/Warsaw".to_string())
-}
-
-fn valid_hostname(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= 63
-        && !s.starts_with('-')
-        && !s.ends_with('-')
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}
 
 fn valid_username(s: &str) -> bool {
     !s.is_empty()
@@ -31,18 +13,6 @@ fn valid_username(s: &str) -> bool {
 }
 
 pub fn build(app: &Rc<App>) -> adw::NavigationPage {
-    let sys_list = gtk::ListBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .css_classes(["boxed-list"])
-        .build();
-    let hostname = adw::EntryRow::builder().title("Nazwa komputera").text("chimera").build();
-    let timezone = adw::EntryRow::builder()
-        .title("Strefa czasowa")
-        .text(detect_timezone())
-        .build();
-    sys_list.append(&hostname);
-    sys_list.append(&timezone);
-
     let user_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .css_classes(["boxed-list"])
@@ -77,15 +47,9 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     {
         let app = app.clone();
-        let (hostname, timezone) = (hostname.clone(), timezone.clone());
         let (username, pass1, pass2) = (username.clone(), pass1.clone(), pass2.clone());
         let (root1, root2) = (root1.clone(), root2.clone());
         next.connect_clicked(move |_| {
-            let host = hostname.text().trim().to_string();
-            if !valid_hostname(&host) {
-                app.toast("Niepoprawna nazwa komputera (litery, cyfry i myślniki).");
-                return;
-            }
             let user = username.text().trim().to_string();
             if !valid_username(&user) {
                 app.toast("Niepoprawna nazwa użytkownika (małe litery, cyfry, _ i -).");
@@ -103,14 +67,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
                 app.toast("Hasła roota nie są identyczne.");
                 return;
             }
-            let tz = timezone.text().trim().to_string();
-            if tz.is_empty() || tz.contains("..") || tz.starts_with('/') {
-                app.toast("Niepoprawna strefa czasowa (np. Europe/Warsaw).");
-                return;
-            }
             {
                 let mut d = app.draft.borrow_mut();
-                d.hostname = host;
                 d.username = user;
                 d.user_password = pass1.text().to_string();
                 d.root_password = if root1.text().is_empty() {
@@ -118,7 +76,6 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
                 } else {
                     Some(root1.text().to_string())
                 };
-                d.timezone = tz;
             }
             app.nav.push(&summary_page::build(&app));
         });
@@ -128,14 +85,13 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         .orientation(gtk::Orientation::Vertical)
         .spacing(18)
         .build();
-    content.append(&sys_list);
     content.append(&user_list);
     content.append(&root_list);
     content.append(&next);
 
     let status = adw::StatusPage::builder()
         .icon_name("system-users-symbolic")
-        .title("Użytkownik i system")
+        .title("Użytkownik")
         .description("Konto zostanie dodane do grupy wheel (uprawnienia administracyjne przez doas).")
         .child(
             &adw::Clamp::builder()

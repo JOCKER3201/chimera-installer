@@ -2,14 +2,16 @@
 
 mod desktop_page;
 mod disk_page;
+mod edition_page;
 mod gpu_page;
+mod system_page;
 mod mode_page;
 mod progress_page;
 mod source_page;
 mod summary_page;
 mod user_page;
 
-use crate::config::{Desktop, GpuChoice, Mode, Source, Strategy};
+use crate::config::{Desktop, Edition, GpuChoice, Mode, Source, Strategy};
 use crate::disks::DiskInfo;
 use adw::prelude::*;
 use std::cell::RefCell;
@@ -30,6 +32,7 @@ pub struct Draft {
     pub mode: Option<Mode>,
     pub source: Option<Source>,
     pub desktop: Option<Desktop>,
+    pub edition: Option<Edition>,
     pub gpus: Vec<GpuChoice>,
     pub choice: Option<DiskChoice>,
     pub hostname: String,
@@ -37,6 +40,10 @@ pub struct Draft {
     pub user_password: String,
     pub root_password: Option<String>,
     pub timezone: String,
+    pub locale: String,
+    pub kb_layout: String,
+    pub kb_variant: String,
+    pub enable_ssh: bool,
 }
 
 pub struct App {

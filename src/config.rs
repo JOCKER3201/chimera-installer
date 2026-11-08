@@ -33,6 +33,16 @@ pub enum Desktop {
     Kde,
 }
 
+/// Wariant środowiska graficznego (tylko dla GNOME/KDE).
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Edition {
+    /// Bez zbędnych aplikacji, z samym terminalem.
+    Base,
+    /// Pełne środowisko ze wszystkimi aplikacjami.
+    Full,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Strategy {
@@ -41,6 +51,10 @@ pub enum Strategy {
     /// Instalacja w nieprzydzielonym obszarze; istniejące partycje zostają.
     /// Wartości w sektorach 512-bajtowych.
     Free { start: u64, sectors: u64 },
+}
+
+fn default_edition() -> Edition {
+    Edition::Full
 }
 
 /// Wybrany sterownik dla wykrytej karty graficznej.
@@ -73,6 +87,9 @@ pub struct InstallConfig {
     /// W trybie z innego systemu zawsze Network.
     pub source: Source,
     pub desktop: Desktop,
+    /// Wariant pulpitu (ignorowany dla Desktop::Base).
+    #[serde(default = "default_edition")]
+    pub edition: Edition,
     /// Sterowniki GPU wybrane na stronie wykrywania.
     #[serde(default)]
     pub gpus: Vec<GpuChoice>,
@@ -94,6 +111,26 @@ pub struct InstallConfig {
     pub root_password: Option<String>,
     /// Np. "Europe/Warsaw"; dowiązanie /etc/localtime w systemie docelowym.
     pub timezone: String,
+    /// Język systemu, np. "pl_PL.UTF-8"; zapisywany jako LANG w /etc/locale.conf.
+    #[serde(default = "default_locale")]
+    pub locale: String,
+    /// Kod układu klawiatury xkb, np. "pl".
+    #[serde(default = "default_kb_layout")]
+    pub kb_layout: String,
+    /// Wariant układu xkb (pusty = domyślny).
+    #[serde(default)]
+    pub kb_variant: String,
+    /// Czy włączyć serwer SSH (sshd) — domyślnie wyłączony.
+    #[serde(default)]
+    pub enable_ssh: bool,
+}
+
+fn default_locale() -> String {
+    "en_US.UTF-8".to_string()
+}
+
+fn default_kb_layout() -> String {
+    "us".to_string()
 }
 
 /// Minimalny rozmiar partycji root przyjmowany przez prosty tryb instalatora.

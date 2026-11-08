@@ -1,7 +1,7 @@
 // Strona wyboru wariantu systemu (base / GNOME / KDE Plasma) —
 // dla instalacji sieciowej z live oraz dla instalacji z innego systemu.
 
-use super::{disk_page, wizard_page, App};
+use super::{disk_page, edition_page, wizard_page, App};
 use crate::config::Desktop;
 use adw::prelude::*;
 use std::rc::Rc;
@@ -21,13 +21,13 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         ),
         (
             "GNOME",
-            "Pełne środowisko GNOME z menedżerem logowania GDM.",
+            "Środowisko GNOME z menedżerem logowania GDM (wariant na następnym ekranie).",
             "preferences-desktop-appearance-symbolic",
             Desktop::Gnome,
         ),
         (
             "KDE Plasma",
-            "Pełne środowisko KDE Plasma z menedżerem logowania SDDM.",
+            "Środowisko KDE Plasma z menedżerem logowania SDDM (wariant na następnym ekranie).",
             "preferences-desktop-theme-symbolic",
             Desktop::Kde,
         ),
@@ -44,7 +44,11 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         let app = app.clone();
         row.connect_activated(move |_| {
             app.draft.borrow_mut().desktop = Some(desktop);
-            app.nav.push(&disk_page::build(&app));
+            // GNOME/KDE → wybór wariantu (base/full); System bazowy → dysk.
+            match desktop {
+                Desktop::Base => app.nav.push(&disk_page::build(&app)),
+                _ => app.nav.push(&edition_page::build(&app)),
+            }
         });
         list.append(&row);
     }

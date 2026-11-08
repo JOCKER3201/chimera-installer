@@ -5,7 +5,7 @@ use super::cmd::{
     log, run, run_capture, run_in, run_in_capture_stdin, run_in_redacted, run_in_soft, run_soft,
 };
 use super::partition::{fs_uuid, TargetParts};
-use crate::config::{Desktop, InstallConfig, Mode, Source};
+use crate::config::{Desktop, Edition, InstallConfig, Mode, Source};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -365,13 +365,26 @@ pub fn write_fstab(target: &Path, cfg: &InstallConfig, uuids: &Uuids) -> Result<
     fs::write(target.join("etc/fstab"), fstab).map_err(|e| format!("zapis fstab: {e}"))
 }
 
-/// Pakiety pulpitu ponad base-full (ustalenia floty, zweryfikowane w cports).
-/// gdm/sddm są zależnościami metapakietów — jawnie dla pewności (idempotentne).
-fn desktop_packages(d: Desktop) -> &'static [&'static str] {
-    match d {
-        Desktop::Base => &[],
-        Desktop::Gnome => &["gnome", "gdm", "networkmanager"],
-        Desktop::Kde => &["plasma-desktop", "sddm", "networkmanager"],
+/// Pakiety pulpitu ponad base-full (zweryfikowane symulacją apk -s w cports).
+/// Wariant base wyklucza aplikacje (`!…`), ale dokłada terminal; full bierze
+/// pełny metapakiet. gdm/sddm i networkmanager w obu (menedżer logowania +
+/// sieć). Wykluczenia `!pkg` apk honoruje w jednej transakcji z resztą.
+fn desktop_packages(d: Desktop, edition: Edition) -> &'static [&'static str] {
+    match (d, edition) {
+        (Desktop::Base, _) => &[],
+        (Desktop::Gnome, Edition::Full) => &["gnome", "gdm", "networkmanager"],
+        (Desktop::Gnome, Edition::Base) => {
+            &["gnome", "!gnome-apps", "gnome-console", "gdm", "networkmanager"]
+        }
+        (Desktop::Kde, Edition::Full) => &["plasma-desktop", "sddm", "networkmanager"],
+        (Desktop::Kde, Edition::Base) => &[
+            "plasma-desktop",
+            "!plasma-desktop-apps-meta",
+            "!plasma-desktop-multimedia-meta",
+            "konsole",
+            "sddm",
+            "networkmanager",
+        ],
     }
 }
 
@@ -426,7 +439,10 @@ pub fn install_packages(cfg: &InstallConfig, target: &Path) -> Result<(), String
     if !is_local_live(cfg) {
         pkgs.push("linux-stable");
     }
-    pkgs.extend_from_slice(desktop_packages(cfg.desktop));
+    if cfg.enable_ssh {
+        pkgs.push("openssh");
+    }
+    pkgs.extend_from_slice(desktop_packages(cfg.desktop, cfg.edition));
     if cfg.uefi {
         pkgs.extend_from_slice(&["grub-x86_64-efi", "efibootmgr"]);
     } else {
@@ -498,7 +514,10 @@ pub fn configure_gpu(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
 /// przez podpakiety *-dinit-links i NIE wolno ich dublować.
 /// Jeden demon sieci naraz: dhcpcd dla base, NetworkManager dla pulpitów.
 fn services_to_enable(cfg: &InstallConfig) -> Vec<&'static str> {
-    let mut v = vec!["syslog-ng", "snapper"];
+    // UWAGA: snapperd NIE trafia tu — to backend D-Bus uruchamiany na żądanie
+    // (org.opensuse.Snapper.service). W boot.d startowałby przed dbus i padał
+    // z DBus::ErrorException (signal 6). CLI snappera i tak go aktywuje.
+    let mut v = vec!["syslog-ng"];
     match cfg.desktop {
         Desktop::Base => v.push("dhcpcd"),
         Desktop::Gnome => v.extend_from_slice(&["networkmanager", "gdm"]),
@@ -538,6 +557,13 @@ pub fn enable_services(cfg: &InstallConfig, target: &Path) -> Result<(), String>
     if wanted.contains("networkmanager") {
         wanted.remove("dhcpcd");
     }
+    // sshd sterowany wyłącznie opcją ze strony „System": domyślnie wyłączony,
+    // także gdy nośnik live miał go włączonego (usuwamy go z lustra boot.d).
+    if cfg.enable_ssh {
+        wanted.insert("sshd".to_string());
+    } else {
+        wanted.remove("sshd");
+    }
 
     let bootd = target.join("etc/dinit.d/boot.d");
     fs::create_dir_all(&bootd).map_err(|e| format!("mkdir boot.d: {e}"))?;
@@ -573,12 +599,67 @@ pub fn configure_system(cfg: &InstallConfig, target: &Path) -> Result<(), String
         log(&format!("OSTRZEŻENIE: strefa {tz} nie istnieje w systemie docelowym — pomijam"));
     }
 
+    configure_locale_keyboard(cfg, target)?;
+
     run_in(target, &["useradd", "-m", "-G", "wheel", &cfg.username])?;
     set_password(target, &cfg.username, &cfg.user_password)?;
     match &cfg.root_password {
         Some(pass) => set_password(target, "root", pass)?,
         None => log("konto roota pozostaje zablokowane (administracja: doas przez grupę wheel)"),
     }
+
+    // Wygoda: `sudo` jako dowiązanie do `doas` (Chimera nie ma sudo).
+    let sudo = target.join("usr/bin/sudo");
+    let _ = fs::remove_file(&sudo);
+    if let Err(e) = std::os::unix::fs::symlink("doas", &sudo) {
+        log(&format!("OSTRZEŻENIE: nie udało się utworzyć /usr/bin/sudo → doas: {e}"));
+    } else {
+        log("utworzono dowiązanie /usr/bin/sudo → doas");
+    }
+    Ok(())
+}
+
+/// Język i układ klawiatury — tak, żeby obowiązywały też w konsoli tty.
+/// Język: LANG w /etc/locale.conf (czyta go profile.d/locale.sh przy każdym
+/// logowaniu). Klawiatura: /etc/default/keyboard stosowany przy boocie przez
+/// usługę early-keyboard.target (setupcon). Dla pulpitów używamy układu XKB
+/// (console-setup-xkb/ckbcomp przekłada go na konsolę) i dokładamy
+/// /etc/X11/xorg.conf.d/00-keyboard.conf dla sesji graficznej; dla systemu
+/// bazowego bez X — konsolowej mapy KMAP (loadkeys).
+fn configure_locale_keyboard(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
+    fs::write(target.join("etc/locale.conf"), format!("LANG={}\n", cfg.locale))
+        .map_err(|e| format!("zapis /etc/locale.conf: {e}"))?;
+
+    let kbd_path = target.join("etc/default/keyboard");
+    fs::create_dir_all(kbd_path.parent().unwrap())
+        .map_err(|e| format!("mkdir /etc/default: {e}"))?;
+
+    if cfg.desktop == Desktop::Base {
+        // Bez środowiska graficznego: konsolowa mapa klawiszy.
+        fs::write(&kbd_path, format!("KMAP={}\n", cfg.kb_layout))
+            .map_err(|e| format!("zapis /etc/default/keyboard: {e}"))?;
+    } else {
+        let kbd = format!(
+            "XKBMODEL=pc105\nXKBLAYOUT={}\nXKBVARIANT={}\nXKBOPTIONS=\n",
+            cfg.kb_layout, cfg.kb_variant
+        );
+        fs::write(&kbd_path, kbd).map_err(|e| format!("zapis /etc/default/keyboard: {e}"))?;
+
+        let xorg = format!(
+            "Section \"InputClass\"\n    Identifier \"system-keyboard\"\n    \
+             MatchIsKeyboard \"on\"\n    Option \"XkbLayout\" \"{}\"\n    \
+             Option \"XkbModel\" \"pc105\"\n    Option \"XkbVariant\" \"{}\"\nEndSection\n",
+            cfg.kb_layout, cfg.kb_variant
+        );
+        let xdir = target.join("etc/X11/xorg.conf.d");
+        fs::create_dir_all(&xdir).map_err(|e| format!("mkdir xorg.conf.d: {e}"))?;
+        fs::write(xdir.join("00-keyboard.conf"), xorg)
+            .map_err(|e| format!("zapis 00-keyboard.conf: {e}"))?;
+    }
+    log(&format!(
+        "język: {}, klawiatura: {} {}",
+        cfg.locale, cfg.kb_layout, cfg.kb_variant
+    ));
     Ok(())
 }
 

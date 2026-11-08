@@ -3,7 +3,7 @@
 //  - jest wolne miejsce -> pytanie, czy go użyć (lub wymazać cały dysk),
 //  - brak miejsca       -> pytanie o tryb zaawansowany (na razie atrapa).
 
-use super::{advanced_mode_stub, user_page, wizard_page, App, DiskChoice};
+use super::{advanced_mode_stub, system_page, wizard_page, App, DiskChoice};
 use crate::config::{format_gib, Strategy, ESP_BYTES, MIN_ROOT_BYTES};
 use crate::disks::{self, DiskInfo};
 use adw::prelude::*;
@@ -29,7 +29,7 @@ fn accept(app: &Rc<App>, disk: &DiskInfo, strategy: Strategy) {
         },
         biosboot_present: matches!(strategy, Strategy::Free { .. }) && disks::has_biosboot(disk),
     });
-    app.nav.push(&user_page::build(app));
+    app.nav.push(&system_page::build(app));
 }
 
 /// Potwierdzenie wymazania całego, niepustego dysku.

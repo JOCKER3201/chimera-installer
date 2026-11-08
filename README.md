@@ -15,7 +15,11 @@ oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
       włączone na live (`/etc/dinit.d/boot.d`) są odwzorowywane w systemie
       docelowym; snapper i mikrokod CPU są dobierane z sieci,
     * *z sieci* (`chimera-bootstrap -f`) — najnowsze pakiety z repozytorium
-      oraz wybór wariantu systemu: **base / GNOME / KDE Plasma**,
+      oraz wybór systemu: **system bazowy / GNOME / KDE Plasma**, a dla
+      pulpitów dodatkowo wariant **base** (bez aplikacji, z samym terminalem:
+      `apk add gnome '!gnome-apps'` + `gnome-console`, albo `plasma-desktop`
+      bez `*-apps-meta`/`*-multimedia-meta` + `konsole`) albo **full**
+      (pełny metapakiet: `apk add gnome` / `apk add plasma-desktop`),
   * **z innego systemu** — pobiera najnowszy obraz
     `chimera-linux-<arch>-ROOTFS-<data>-bootstrap.tar.gz` z
     `repo.chimera-linux.org` (z weryfikacją SHA-256), rozpakowuje go do
@@ -69,6 +73,13 @@ oparty na oficjalnej procedurze z <https://chimera-linux.org/docs/installation>.
   z bootniętej migawki read-only, a nawet z live USB. `snapper rollback`
   (openSUSE, oparty na `set-default`) świadomie NIE jest używany — waniliowy
   GRUB by go zignorował.
+* **Strona „System" i „Użytkownik"** — nazwa komputera, strefa czasowa
+  (dialog kontynent → strefa), język (`LANG` w `/etc/locale.conf`, działa też
+  w tty), układ klawiatury (dialog układ + wariant; zapis do
+  `/etc/default/keyboard` dla konsoli i `/etc/X11/xorg.conf.d/00-keyboard.conf`
+  dla sesji graficznej) oraz przełącznik **serwera SSH** (sshd — domyślnie
+  wyłączony, także gdy nośnik live miał go włączonego); konto użytkownika
+  i roota na osobnej stronie.
 * **pkexec zamiast sudo** — GUI działa bez uprawnień; całą pracę wykonuje
   helper (`<binarka> helper`) uruchamiany przez `pkexec`, a konfiguracja
   (w tym hasła) przechodzi wyłącznie przez stdin.
@@ -94,7 +105,8 @@ distroboksie z zainstalowanymi pakietami devel.
 Instalator poprosi o autoryzację polkit dopiero w momencie rozpoczęcia
 instalacji. W systemie docelowym tworzony jest użytkownik w grupie `wheel`
 (administracja przez `doas`, zgodnie z domyślną konfiguracją Chimery);
-konto roota można zablokować, zostawiając puste hasło.
+konto roota można zablokować, zostawiając puste hasło. Dla wygody tworzone
+jest dowiązanie `/usr/bin/sudo` → `doas`, więc polecenia `sudo …` też działają.
 
 Instalowane pakiety: `base-full` (przez `chimera-bootstrap`), `linux-stable`
 (poza trybem lokalnym — tam jądro pochodzi z kopii live), `btrfs-progs`,

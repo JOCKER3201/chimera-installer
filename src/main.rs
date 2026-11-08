@@ -11,6 +11,7 @@ mod config;
 mod disks;
 mod gpu;
 mod helper;
+mod sysdata;
 mod ui;
 
 fn main() {
