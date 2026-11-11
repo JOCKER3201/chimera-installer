@@ -1,5 +1,6 @@
-// Strona postępu: uruchamia helper roota przez pkexec, czyta protokół
-// z jego stdout w wątku i aktualizuje UI przez async_channel.
+// The progress page: launches the root helper via pkexec, reads the
+// protocol from its stdout in a thread and updates the UI through an
+// async_channel.
 
 use super::{wizard_page, App};
 use crate::config::InstallConfig;
@@ -20,14 +21,14 @@ fn spawn_helper(cfg: &InstallConfig, tx: async_channel::Sender<Msg>) {
     let exe = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => {
-            let _ = tx.send_blocking(Msg::Fail(format!("nie znam własnej ścieżki: {e}")));
+            let _ = tx.send_blocking(Msg::Fail(format!("cannot determine my own path: {e}")));
             return;
         }
     };
     let json = match serde_json::to_string(cfg) {
         Ok(j) => j,
         Err(e) => {
-            let _ = tx.send_blocking(Msg::Fail(format!("serializacja konfiguracji: {e}")));
+            let _ = tx.send_blocking(Msg::Fail(format!("configuration serialization: {e}")));
             return;
         }
     };
@@ -43,7 +44,7 @@ fn spawn_helper(cfg: &InstallConfig, tx: async_channel::Sender<Msg>) {
         {
             Ok(c) => c,
             Err(e) => {
-                let _ = tx.send_blocking(Msg::Fail(format!("nie można uruchomić pkexec: {e}")));
+                let _ = tx.send_blocking(Msg::Fail(format!("cannot run pkexec: {e}")));
                 return;
             }
         };
@@ -51,15 +52,16 @@ fn spawn_helper(cfg: &InstallConfig, tx: async_channel::Sender<Msg>) {
         if let Some(mut stdin) = child.stdin.take() {
             if let Err(e) = stdin.write_all(json.as_bytes()) {
                 let _ = tx.send_blocking(Msg::Fail(format!(
-                    "nie można przekazać konfiguracji helperowi: {e}"
+                    "cannot pass the configuration to the helper: {e}"
                 )));
                 let _ = child.kill();
                 return;
             }
-            // Zamknięcie stdin sygnalizuje helperowi koniec konfiguracji.
+            // Closing stdin signals the end of the configuration to the helper.
         }
 
-        // stderr (w tym komunikaty pkexec/polkit) w osobnym wątku do logu.
+        // stderr (including pkexec/polkit messages) goes to the log from a
+        // separate thread.
         if let Some(err) = child.stderr.take() {
             let tx = tx.clone();
             std::thread::spawn(move || {
@@ -94,17 +96,17 @@ fn spawn_helper(cfg: &InstallConfig, tx: async_channel::Sender<Msg>) {
 
         let status = child.wait();
         if !finished {
-            // Helper zakończył się bez ::D/::E — np. odmowa autoryzacji pkexec
-            // (kod 126) albo przerwanie dialogu (127).
+            // The helper ended without ::D/::E — e.g. pkexec authorization
+            // denied (code 126) or the dialog dismissed (127).
             let msg = match status {
                 Ok(s) if s.code() == Some(126) => {
-                    "autoryzacja pkexec nie powiodła się".to_string()
+                    "pkexec authorization failed".to_string()
                 }
                 Ok(s) if s.code() == Some(127) => {
-                    "autoryzacja pkexec została anulowana".to_string()
+                    "pkexec authorization was cancelled".to_string()
                 }
-                Ok(s) => format!("helper zakończył się niespodziewanie ({s})"),
-                Err(e) => format!("błąd oczekiwania na helper: {e}"),
+                Ok(s) => format!("the helper exited unexpectedly ({s})"),
+                Err(e) => format!("error waiting for the helper: {e}"),
             };
             let _ = tx.send_blocking(Msg::Fail(msg));
         }
@@ -113,7 +115,7 @@ fn spawn_helper(cfg: &InstallConfig, tx: async_channel::Sender<Msg>) {
 
 pub fn start(app: &Rc<App>, cfg: InstallConfig) {
     let step_label = gtk::Label::builder()
-        .label("Przygotowywanie…")
+        .label("Preparing…")
         .css_classes(["title-2"])
         .wrap(true)
         .build();
@@ -135,7 +137,7 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
         .css_classes(["card"])
         .build();
     let expander = gtk::Expander::builder()
-        .label("Szczegóły (dziennik instalacji)")
+        .label("Details (installation log)")
         .child(&scroll)
         .build();
 
@@ -152,7 +154,7 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
     content.append(&expander);
 
     let clamp = adw::Clamp::builder().maximum_size(640).child(&content).build();
-    let page = wizard_page("Instalacja", "progress", &clamp);
+    let page = wizard_page("Installation", "progress", &clamp);
     page.set_can_pop(false);
     app.nav.push(&page);
 
@@ -161,12 +163,12 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
 
     let app = app.clone();
     let mode = cfg.mode;
-    // Pełny dziennik instalacji zapisywany równolegle na pulpit użytkownika.
+    // The full installation log is also written to the user's desktop.
     let log_path = desktop_log_path();
     let log_file = std::cell::RefCell::new(std::fs::File::create(&log_path).ok());
     glib::spawn_future_local(async move {
         if let Some(f) = log_file.borrow_mut().as_mut() {
-            let _ = writeln!(f, "# dziennik instalacji chimera-installer");
+            let _ = writeln!(f, "# chimera-installer installation log");
         }
         let append_log = |text: &str| {
             let mut end = log_buffer.end_iter();
@@ -185,24 +187,24 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
                 Msg::Step(step, total, text) => {
                     step_label.set_label(&text);
                     bar.set_fraction(f64::from(step.saturating_sub(1)) / f64::from(total.max(1)));
-                    bar.set_text(Some(&format!("Krok {step} z {total}")));
+                    bar.set_text(Some(&format!("Step {step} of {total}")));
                     append_log(&format!("==> {text}"));
                 }
                 Msg::Log(line) => append_log(&line),
                 Msg::Done => {
                     bar.set_fraction(1.0);
-                    bar.set_text(Some("Zakończono"));
-                    step_label.set_label("Instalacja zakończona");
+                    bar.set_text(Some("Finished"));
+                    step_label.set_label("Installation finished");
                     app.nav.push(&done_page(&app, mode));
                     break;
                 }
                 Msg::Fail(e) => {
-                    step_label.set_label("Błąd instalacji");
+                    step_label.set_label("Installation error");
                     bar.add_css_class("error");
-                    append_log(&format!("BŁĄD: {e}"));
+                    append_log(&format!("ERROR: {e}"));
                     expander.set_expanded(true);
                     page.set_can_pop(true);
-                    app.toast(&format!("Instalacja nie powiodła się: {e}"));
+                    app.toast(&format!("The installation failed: {e}"));
                     break;
                 }
             }
@@ -210,8 +212,9 @@ pub fn start(app: &Rc<App>, cfg: InstallConfig) {
     });
 }
 
-/// Ścieżka dziennika na pulpicie użytkownika (XDG_DESKTOP_DIR, potem
-/// Desktop/Pulpit, w ostateczności katalog domowy).
+/// Log path on the user's desktop (XDG_DESKTOP_DIR, then the Desktop/Pulpit
+/// directories — the latter is the localized name on Polish systems — and
+/// the home directory as a last resort).
 fn desktop_log_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
     if let Ok(cfg) = std::fs::read_to_string(format!("{home}/.config/user-dirs.dirs")) {
@@ -236,7 +239,7 @@ fn desktop_log_path() -> std::path::PathBuf {
 
 fn done_page(app: &Rc<App>, mode: crate::config::Mode) -> adw::NavigationPage {
     let close = gtk::Button::builder()
-        .label("Zamknij instalator")
+        .label("Close the installer")
         .halign(gtk::Align::Center)
         .css_classes(["suggested-action", "pill"])
         .build();
@@ -247,23 +250,23 @@ fn done_page(app: &Rc<App>, mode: crate::config::Mode) -> adw::NavigationPage {
 
     let desc = match mode {
         crate::config::Mode::Live => {
-            "System został zainstalowany. Uruchom komputer ponownie i odłącz nośnik live. \
-             Po pierwszym uruchomieniu migawki snappera są gotowe do użycia."
+            "The system has been installed. Restart the computer and disconnect the live \
+             medium. After the first boot the snapper snapshots are ready to use."
         }
         crate::config::Mode::Foreign => {
-            "System został zainstalowany. Katalog roboczy /tmp/chimera-linux można usunąć. \
-             Uruchom komputer ponownie i wybierz wpis „chimera” w menu rozruchu."
+            "The system has been installed. The /tmp/chimera-linux working directory can be \
+             removed. Restart the computer and pick the \u{201c}chimera\u{201d} entry in the boot menu."
         }
     };
 
     let status = adw::StatusPage::builder()
         .icon_name("object-select-symbolic")
-        .title("Instalacja zakończona")
+        .title("Installation finished")
         .description(desc)
         .child(&close)
         .build();
 
-    let page = wizard_page("Gotowe", "done", &status);
+    let page = wizard_page("Done", "done", &status);
     page.set_can_pop(false);
     page
 }

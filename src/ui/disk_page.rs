@@ -1,7 +1,7 @@
-// Strona wyboru dysku. Proste partycjonowanie:
-//  - pusty dysk        -> instalacja na całym dysku,
-//  - jest wolne miejsce -> pytanie, czy go użyć (lub wymazać cały dysk),
-//  - brak miejsca       -> pytanie o tryb zaawansowany (na razie atrapa).
+// The disk choice page. Simple partitioning:
+//  - empty disk          -> installation on the whole disk,
+//  - free space present  -> ask whether to use it (or wipe the whole disk),
+//  - no space            -> ask about advanced mode (a stub for now).
 
 use super::{advanced_mode_stub, system_page, wizard_page, App, DiskChoice};
 use crate::config::{format_gib, Strategy, ESP_BYTES, MIN_ROOT_BYTES};
@@ -10,7 +10,7 @@ use adw::prelude::*;
 use std::rc::Rc;
 
 fn required_free_bytes(disk: &DiskInfo) -> u64 {
-    // Root + miejsce na ESP (gdy UEFI bez istniejącej ESP) + ew. BIOS boot.
+    // Root + room for the ESP (UEFI without an existing ESP) + possibly BIOS boot.
     let mut need = MIN_ROOT_BYTES;
     if disks::host_is_uefi() && disks::find_esp(disk).is_none() {
         need += ESP_BYTES;
@@ -23,7 +23,7 @@ fn accept(app: &Rc<App>, disk: &DiskInfo, strategy: Strategy) {
         disk: disk.clone(),
         strategy,
         esp_reuse: match strategy {
-            // Przy wymazywaniu całego dysku ESP zawsze powstaje od nowa.
+            // When wiping the whole disk the ESP is always created anew.
             Strategy::Whole => None,
             Strategy::Free { .. } => disks::find_esp(disk),
         },
@@ -32,17 +32,17 @@ fn accept(app: &Rc<App>, disk: &DiskInfo, strategy: Strategy) {
     app.nav.push(&system_page::build(app));
 }
 
-/// Potwierdzenie wymazania całego, niepustego dysku.
+/// Confirmation for wiping a whole, non-empty disk.
 fn confirm_wipe(app: &Rc<App>, disk: &DiskInfo) {
     let dialog = adw::AlertDialog::new(
-        Some("Wymazać cały dysk?"),
+        Some("Wipe the whole disk?"),
         Some(&format!(
-            "Wszystkie dane na {} ({}) zostaną bezpowrotnie usunięte.",
+            "All data on {} ({}) will be irreversibly erased.",
             disk.path,
             format_gib(disk.size)
         )),
     );
-    dialog.add_responses(&[("cancel", "Anuluj"), ("wipe", "Wymaż cały dysk")]);
+    dialog.add_responses(&[("cancel", "Cancel"), ("wipe", "Wipe the whole disk")]);
     dialog.set_response_appearance("wipe", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("cancel"));
     dialog.set_close_response("cancel");
@@ -58,11 +58,11 @@ fn confirm_wipe(app: &Rc<App>, disk: &DiskInfo) {
 
 fn on_disk_activated(app: &Rc<App>, disk: &DiskInfo) {
     if disk.busy_system {
-        app.toast("Ten dysk zawiera uruchomiony system — nie można na nim instalować.");
+        app.toast("This disk contains a running system — cannot install onto it.");
         return;
     }
 
-    // Pusty dysk: bez pytań, cały dysk (nie ma czego stracić).
+    // Empty disk: no questions, whole disk (nothing to lose).
     if disks::is_empty(disk) {
         accept(app, disk, Strategy::Whole);
         return;
@@ -73,21 +73,21 @@ fn on_disk_activated(app: &Rc<App>, disk: &DiskInfo) {
 
     match gap {
         Some(g) => {
-            // Jest wolne miejsce — pytamy, czy go użyć.
+            // There is free space — ask whether to use it.
             let dialog = adw::AlertDialog::new(
-                Some("Wykryto wolne miejsce"),
+                Some("Free space detected"),
                 Some(&format!(
-                    "Na dysku {} znajduje się {} nieprzydzielonego miejsca. \
-                     Chimera Linux może zostać zainstalowana w tym obszarze bez \
-                     naruszania istniejących partycji.",
+                    "Disk {} has {} of unallocated space. \
+                     Chimera Linux can be installed into that area without \
+                     touching the existing partitions.",
                     disk.path,
                     format_gib(g.bytes())
                 )),
             );
             dialog.add_responses(&[
-                ("cancel", "Anuluj"),
-                ("wipe", "Wymaż cały dysk"),
-                ("free", "Użyj wolnego miejsca"),
+                ("cancel", "Cancel"),
+                ("wipe", "Wipe the whole disk"),
+                ("free", "Use the free space"),
             ]);
             dialog.set_response_appearance("free", adw::ResponseAppearance::Suggested);
             dialog.set_response_appearance("wipe", adw::ResponseAppearance::Destructive);
@@ -110,21 +110,21 @@ fn on_disk_activated(app: &Rc<App>, disk: &DiskInfo) {
             dialog.present(Some(&app.win));
         }
         None => {
-            // Brak miejsca — pytanie o tryb zaawansowany (atrapa).
+            // No space — ask about advanced mode (a stub).
             let dialog = adw::AlertDialog::new(
-                Some("Brak wolnego miejsca"),
+                Some("No free space"),
                 Some(&format!(
-                    "Dysk {} nie ma wystarczającego nieprzydzielonego miejsca \
-                     (potrzeba co najmniej {}). Czy chcesz przejść do trybu \
-                     zaawansowanego, aby ręcznie zmienić układ partycji?",
+                    "Disk {} does not have enough unallocated space \
+                     (at least {} is needed). Do you want to switch to \
+                     advanced mode to adjust the partition layout manually?",
                     disk.path,
                     format_gib(need)
                 )),
             );
             dialog.add_responses(&[
-                ("cancel", "Anuluj"),
-                ("wipe", "Wymaż cały dysk"),
-                ("advanced", "Tryb zaawansowany…"),
+                ("cancel", "Cancel"),
+                ("wipe", "Wipe the whole disk"),
+                ("advanced", "Advanced mode…"),
             ]);
             dialog.set_response_appearance("wipe", adw::ResponseAppearance::Destructive);
             dialog.set_default_response(Some("advanced"));
@@ -148,16 +148,16 @@ fn disk_subtitle(disk: &DiskInfo) -> String {
         bits.push(t.to_uppercase());
     }
     if disk.busy_system {
-        bits.push("zawiera uruchomiony system".into());
+        bits.push("contains a running system".into());
     } else if disks::is_empty(disk) {
-        bits.push("pusty dysk".into());
+        bits.push("empty disk".into());
     } else {
-        bits.push(format!("partycje: {}", disk.parts.len()));
+        bits.push(format!("partitions: {}", disk.parts.len()));
         match disks::largest_gap(disk) {
             Some(g) if g.bytes() >= required_free_bytes(disk) => {
-                bits.push(format!("wolne miejsce: {}", format_gib(g.bytes())));
+                bits.push(format!("free space: {}", format_gib(g.bytes())));
             }
-            _ => bits.push("brak wolnego miejsca".into()),
+            _ => bits.push("no free space".into()),
         }
     }
     bits.join(" · ")
@@ -197,14 +197,14 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         Ok(_) => {
             list.append(
                 &adw::ActionRow::builder()
-                    .title("Nie znaleziono żadnych dysków")
+                    .title("No disks found")
                     .build(),
             );
         }
         Err(e) => {
             list.append(
                 &adw::ActionRow::builder()
-                    .title("Błąd skanowania dysków")
+                    .title("Disk scan error")
                     .subtitle(e)
                     .build(),
             );
@@ -213,10 +213,10 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("drive-harddisk-system-symbolic")
-        .title("Wybór dysku")
+        .title("Disk choice")
         .description(&format!(
-            "Wybierz dysk, na którym zostanie zainstalowana Chimera Linux \
-             (btrfs z migawkami snappera). Tryb rozruchu: {}.",
+            "Choose the disk Chimera Linux will be installed on \
+             (btrfs with snapper snapshots). Boot mode: {}.",
             if disks::host_is_uefi() { "UEFI" } else { "BIOS" }
         ))
         .child(
@@ -227,5 +227,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Dysk docelowy", "disk", &status)
+    wizard_page("Target disk", "disk", &status)
 }

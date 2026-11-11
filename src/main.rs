@@ -1,11 +1,12 @@
-// chimera-installer — graficzny instalator Chimera Linux.
+// chimera-installer — graphical installer for Chimera Linux.
 //
-// Jedna binarka, dwie role:
-//   bez argumentów      -> GUI (GTK4 + libadwaita),
-//   `helper` jako argv1 -> część rootowa, uruchamiana przez GUI poleceniem
-//                          `pkexec <binarka> helper` z konfiguracją na stdin.
+// One binary, two roles:
+//   no arguments        -> GUI (GTK4 + libadwaita),
+//   `helper` as argv1   -> the root part, launched by the GUI as
+//                          `pkexec <binary> helper` with the configuration
+//                          on stdin.
 //
-// Napisane w całości przez AI (Claude, Anthropic) na zamówienie użytkownika.
+// Written entirely by an AI (Claude, Anthropic) at the user's request.
 
 mod config;
 mod disks;
@@ -19,7 +20,7 @@ fn main() {
     let _exe = args.next();
     match args.next().as_deref() {
         Some("helper") => std::process::exit(helper::main()),
-        // Diagnostyka: wydruk wykrytych dysków i decyzji prostego trybu.
+        // Diagnostics: print the detected disks and the simple-mode decisions.
         Some("scan") => std::process::exit(scan_debug()),
         _ => std::process::exit(ui::run()),
     }
@@ -27,12 +28,12 @@ fn main() {
 
 fn scan_debug() -> i32 {
     println!(
-        "tryb rozruchu hosta: {}",
+        "host boot mode: {}",
         if disks::host_is_uefi() { "UEFI" } else { "BIOS" }
     );
     for g in gpu::scan() {
         println!(
-            "GPU {}: {} {}:{} — sterowniki: {}",
+            "GPU {}: {} {}:{} — drivers: {}",
             g.slot,
             g.vendor_name,
             g.vendor,
@@ -48,16 +49,16 @@ fn scan_debug() -> i32 {
         Ok(found) => {
             for d in &found {
                 println!(
-                    "{} — {} ({}, tablica: {}){}",
+                    "{} — {} ({}, table: {}){}",
                     d.path,
-                    if d.model.is_empty() { "(bez modelu)" } else { &d.model },
+                    if d.model.is_empty() { "(no model)" } else { &d.model },
                     config::format_gib(d.size),
-                    d.pttype.as_deref().unwrap_or("brak"),
-                    if d.busy_system { " [URUCHOMIONY SYSTEM]" } else { "" }
+                    d.pttype.as_deref().unwrap_or("none"),
+                    if d.busy_system { " [RUNNING SYSTEM]" } else { "" }
                 );
                 for p in &d.parts {
                     println!(
-                        "    {} start={} rozmiar={} typ={} fs={} mnt={:?}",
+                        "    {} start={} size={} type={} fs={} mnt={:?}",
                         p.path,
                         p.start,
                         config::format_gib(p.size),
@@ -67,25 +68,25 @@ fn scan_debug() -> i32 {
                     );
                 }
                 if disks::is_empty(d) {
-                    println!("    => pusty dysk: instalacja na całym dysku");
+                    println!("    => empty disk: installation on the whole disk");
                 } else {
                     match disks::largest_gap(d) {
                         Some(g) => println!(
-                            "    => największa luka: start={} sektorów, {}",
+                            "    => largest gap: start={} sectors, {}",
                             g.start,
                             config::format_gib(g.bytes())
                         ),
-                        None => println!("    => brak wolnego miejsca"),
+                        None => println!("    => no free space"),
                     }
                     if let Some(esp) = disks::find_esp(d) {
-                        println!("    => istniejąca ESP: {esp}");
+                        println!("    => existing ESP: {esp}");
                     }
                 }
             }
             0
         }
         Err(e) => {
-            eprintln!("błąd skanowania: {e}");
+            eprintln!("scan error: {e}");
             1
         }
     }

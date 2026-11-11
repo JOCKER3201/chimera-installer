@@ -1,4 +1,4 @@
-// Strona wyboru trybu instalacji — pierwsza po uruchomieniu.
+// The installation mode choice page — the first one after startup.
 
 use super::{gpu_page, wizard_page, App};
 use crate::config::Mode;
@@ -15,11 +15,11 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     let live_available = Path::new("/usr/bin/chimera-bootstrap").exists();
 
     let live = adw::ActionRow::builder()
-        .title("Instalacja z nośnika live Chimery")
+        .title("Install from a Chimera live medium")
         .subtitle(if live_available {
-            "System zostanie zainstalowany narzędziem chimera-bootstrap z uruchomionego nośnika."
+            "The system will be installed with the chimera-bootstrap tool from the running medium."
         } else {
-            "Niedostępne: brak chimera-bootstrap — uruchom instalator z obrazu live Chimera Linux."
+            "Unavailable: chimera-bootstrap missing — run the installer from a Chimera Linux live image."
         })
         .activatable(live_available)
         .sensitive(live_available)
@@ -28,10 +28,10 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     live.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
 
     let foreign = adw::ActionRow::builder()
-        .title("Instalacja z innego systemu")
+        .title("Install from another system")
         .subtitle(
-            "Pobiera bazowy obraz Chimera Linux, rozpakowuje go do /tmp/chimera-linux \
-             i instaluje przez chroot. Wymaga połączenia z internetem.",
+            "Downloads the Chimera Linux base image, unpacks it to /tmp/chimera-linux \
+             and installs via chroot. Requires an internet connection.",
         )
         .activatable(true)
         .build();
@@ -41,8 +41,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     list.append(&live);
     list.append(&foreign);
 
-    // Po trybie zawsze strona GPU; ona kieruje dalej (live -> źródło
-    // pakietów, inny system -> od razu wariant, jako instalacja sieciowa).
+    // The GPU page always follows the mode; it routes onward (live -> package
+    // source, another system -> straight to the variant, as a network install).
     fn pick(app: &Rc<App>, mode: Mode) {
         app.draft.borrow_mut().mode = Some(mode);
         app.nav.push(&gpu_page::build(app));
@@ -58,8 +58,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("system-software-install-symbolic")
-        .title("Instalator Chimera Linux")
-        .description("Wybierz sposób instalacji systemu.")
+        .title("Chimera Linux Installer")
+        .description("Choose how to install the system.")
         .child(
             &adw::Clamp::builder()
                 .maximum_size(520)
@@ -68,5 +68,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Tryb instalacji", "mode", &status)
+    wizard_page("Installation mode", "mode", &status)
 }

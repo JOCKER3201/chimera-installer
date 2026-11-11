@@ -1,17 +1,18 @@
-// EKSPERYMENTALNE: budowa i instalacja zastrzeżonego sterownika NVIDIA
-// z otwartego PR-a cports (#6531) — z pominięciem repozytorium binarnego.
+// EXPERIMENTAL: building and installing the proprietary NVIDIA driver from
+// the open cports PR (#6531) — bypassing the binary repository.
 //
-// Dostępne wyłącznie w trybie live (cbuild musi działać na żywym nośniku
-// Chimery: wymaga apk-tools 3, musl, bubblewrap i NIE wolno go odpalać
-// w chroocie ani jako root). Katalog roboczy: /tmp/musl-nvidia.
+// Available in live mode only (cbuild must run on a live Chimera medium:
+// it requires apk-tools 3, musl, bubblewrap, and must NOT be run inside
+// a chroot or as root). Working directory: /tmp/musl-nvidia.
 //
-// Budowa odbywa się na SAMYM POCZĄTKU instalacji — jeszcze przed
-// wyczyszczeniem dysku docelowego — żeby ewentualna porażka (opcja jest
-// eksperymentalna) nie zostawiła użytkownika z wymazanym dyskiem.
-// Instalacja gotowych pakietów do celu następuje później, po jego
-// zamontowaniu.
+// The build happens at the VERY BEGINNING of the installation — before the
+// target disk is wiped — so a potential failure (the option is
+// experimental) does not leave the user with an erased disk.
+// Installing the finished packages into the target happens later, once it
+// is mounted.
 //
-// Źródła ustaleń: workflow badawczy nad PR #6531 (q66/nina) + docs cbuild.
+// Sources of these findings: the research workflow around PR #6531
+// (q66/nina) + the cbuild docs.
 
 use super::cmd::{log, run, run_as_user, run_capture, run_in, run_soft};
 use crate::config::{GpuChoice, InstallConfig};
@@ -20,9 +21,9 @@ use std::path::Path;
 
 const CPORTS_REPO: &str = "https://github.com/chimera-linux/cports";
 const PR_BRANCH: &str = "nvidia-driver";
-// Uwaga: PR #6531 jest „draft” i bywa force-pushowany (rebase) co kilka
-// godzin, przez co każdy sztywny pin commita szybko przestaje być osiągalny
-// w gałęzi. Dlatego bierzemy AKTUALNY tip gałęzi i logujemy jego SHA.
+// Note: PR #6531 is a draft and gets force-pushed (rebased) every few
+// hours, so any fixed commit pin quickly becomes unreachable on the
+// branch. We therefore take the CURRENT branch tip and log its SHA.
 pub const WORKDIR: &str = "/tmp/musl-nvidia";
 
 struct Builder {
@@ -32,12 +33,12 @@ struct Builder {
     home: String,
 }
 
-/// Konto, z którego uruchomimy cbuild (odmawia pracy jako root).
-/// Najpierw użytkownik, który odpalił instalator (PKEXEC_UID), potem
-/// pierwsze zwykłe konto z /etc/passwd.
+/// The account cbuild will run under (it refuses to run as root).
+/// First the user who launched the installer (PKEXEC_UID), then the first
+/// regular account from /etc/passwd.
 fn find_builder() -> Result<Builder, String> {
     let passwd = fs::read_to_string("/etc/passwd")
-        .map_err(|e| format!("odczyt /etc/passwd: {e}"))?;
+        .map_err(|e| format!("reading /etc/passwd: {e}"))?;
     let lookup = |want_uid: Option<u32>| -> Option<Builder> {
         for line in passwd.lines() {
             let f: Vec<&str> = line.split(':').collect();
@@ -70,13 +71,13 @@ fn find_builder() -> Result<Builder, String> {
         }
     }
     lookup(None).ok_or_else(|| {
-        "cbuild nie może działać jako root, a nie znaleziono zwykłego konta użytkownika \
-         na nośniku live — uruchom instalator jako użytkownik, nie root"
+        "cbuild cannot run as root, and no regular user account was found \
+         on the live medium — launch the installer as a user, not as root"
             .to_string()
     })
 }
 
-/// Mapuje nazwy pakietów ("nvidia620") na szablony cbuild ("user/nvidia620").
+/// Maps package names ("nvidia620") to cbuild templates ("user/nvidia620").
 fn template_of(pkg: &str) -> Option<&'static str> {
     match pkg {
         "nvidia620" => Some("user/nvidia620"),
@@ -85,8 +86,8 @@ fn template_of(pkg: &str) -> Option<&'static str> {
     }
 }
 
-/// Nazwy pakietów sterownika wybrane dla wykrytych kart ("nvidia-620" ->
-/// "nvidia620"); bez duplikatów.
+/// Driver package names chosen for the detected cards ("nvidia-620" ->
+/// "nvidia620"); deduplicated.
 pub fn selected_packages(gpus: &[GpuChoice]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for g in gpus {
@@ -106,25 +107,25 @@ pub fn wants_proprietary(cfg: &InstallConfig) -> bool {
     cfg.gpus.iter().any(|g| g.driver.starts_with("nvidia-"))
 }
 
-/// Ostrzega, jeśli katalog roboczy leży na tmpfs (build to kilka GB —
-/// na nośniku live grozi to wyczerpaniem RAM-u).
+/// Warns if the working directory sits on tmpfs (the build takes several
+/// GB — on a live medium this risks exhausting RAM).
 fn warn_if_tmpfs() {
     if let Ok(out) = run_capture(&["findmnt", "-n", "-o", "FSTYPE", "--target", "/tmp"]) {
         if out.trim() == "tmpfs" {
             log(
-                "OSTRZEŻENIE: /tmp jest w pamięci (tmpfs). Budowa sterownika NVIDIA \
-                 zajmuje kilka GB — przy małej ilości RAM może się nie powieść (OOM).",
+                "WARNING: /tmp is in memory (tmpfs). Building the NVIDIA driver \
+                 takes several GB — with little RAM it may fail (OOM).",
             );
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Faza 1: budowa pakietów (proces w tle `helper build-nvidia <pkg...>`)
+// Phase 1: building the packages (background process `helper build-nvidia <pkg...>`)
 // ---------------------------------------------------------------------------
 
-/// Buduje pakiety sterownika z PR-a przez cbuild. Wołana na początku
-/// instalacji, przed wyczyszczeniem dysku.
+/// Builds the driver packages from the PR via cbuild. Called at the start
+/// of the installation, before the disk is wiped.
 pub fn build(cfg: &InstallConfig) -> Result<(), String> {
     let pkgs = selected_packages(&cfg.gpus);
     let templates: Vec<&str> = pkgs.iter().filter_map(|p| template_of(p)).collect();
@@ -133,43 +134,44 @@ pub fn build(cfg: &InstallConfig) -> Result<(), String> {
     }
     let b = find_builder()?;
     log(&format!(
-        "budowa sterownika NVIDIA z PR cports #6531 (gałąź {PR_BRANCH}) jako {} (UID {})",
+        "building the NVIDIA driver from cports PR #6531 (branch {PR_BRANCH}) as {} (UID {})",
         b.name, b.uid
     ));
     warn_if_tmpfs();
 
-    // Zależności hosta do cbuild (ruff osobno — build_lint woła się zawsze).
+    // Host dependencies for cbuild (ruff separately — build_lint is always invoked).
     run(&["apk", "add", "base-cbuild-host", "ruff"])?;
 
-    // Świeży katalog roboczy należący do użytkownika budującego.
+    // A fresh working directory owned by the building user.
     run_soft(&["rm", "-rf", WORKDIR]);
     run(&["mkdir", "-p", WORKDIR])?;
     run(&["chown", &format!("{}:{}", b.uid, b.gid), WORKDIR])?;
 
     let as_user = |cmd: &str| run_as_user(b.uid, b.gid, &b.name, &b.home, WORKDIR, cmd);
 
-    // Klon aktualnego tipa gałęzi PR-a (prawdziwy klon gita, pojedyncza
-    // gałąź dla oszczędności), a następnie zapis użytego commita do dziennika.
+    // Clone the current tip of the PR branch (a real git clone, single
+    // branch to save space), then record the commit that was used in the log.
     as_user(&format!(
         "git clone --branch {PR_BRANCH} --single-branch {CPORTS_REPO} ."
     ))?;
     as_user("git rev-parse HEAD")?;
 
-    // Klucz podpisujący lokalne repo + bootstrap środowiska budowy.
+    // Signing key for the local repo + bootstrap of the build environment.
     as_user("./cbuild keygen")?;
     as_user("./cbuild binary-bootstrap")?;
 
-    // Budowa wybranych gałęzi (ciągnie też musl-nvidia i resztę zależnie).
+    // Build the selected templates (pulls musl-nvidia and the rest as needed).
     as_user(&format!("./cbuild pkg {}", templates.join(" ")))?;
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Faza 2: instalacja zbudowanych pakietów do systemu docelowego
+// Phase 2: installing the built packages into the target system
 // ---------------------------------------------------------------------------
 
-/// Instaluje zbudowane wcześniej pakiety do systemu docelowego i konfiguruje
-/// cel. Wołana po zamontowaniu celu (potrzebuje /media/root).
+/// Installs the previously built packages into the target system and
+/// configures the target. Called after the target is mounted (needs
+/// /media/root).
 pub fn install(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
     let pkgs = selected_packages(&cfg.gpus);
     if pkgs.is_empty() {
@@ -178,11 +180,11 @@ pub fn install(cfg: &InstallConfig, target: &Path) -> Result<(), String> {
     install_to_target(&pkgs, target)
 }
 
-/// Instaluje zbudowane pakiety do systemu docelowego i konfiguruje cel.
+/// Installs the built packages into the target system and configures the target.
 fn install_to_target(pkgs: &[String], target: &Path) -> Result<(), String> {
-    // Instalacja przez `apk --root` z HOSTA: lokalne repo leży w /tmp,
-    // niewidocznym w chroocie. Trigger ckms i tak chrootuje się do celu
-    // (bindy proc/sys/dev są aktywne), więc moduł zbuduje się na miejscu.
+    // Install via `apk --root` from the HOST: the local repo lives in /tmp,
+    // invisible inside the chroot. The ckms trigger chroots into the target
+    // anyway (the proc/sys/dev binds are active), so the module builds in place.
     let root = target.to_string_lossy().to_string();
     let main_repo = format!("{WORKDIR}/packages/main");
     let user_repo = format!("{WORKDIR}/packages/user");
@@ -196,8 +198,8 @@ fn install_to_target(pkgs: &[String], target: &Path) -> Result<(), String> {
         main_repo,
         "-X".into(),
         user_repo,
-        // Nagłówki MUSZĄ odpowiadać zainstalowanemu jądru (linux-stable),
-        // inaczej ckms nie zbuduje modułu.
+        // The headers MUST match the installed kernel (linux-stable),
+        // otherwise ckms cannot build the module.
         "linux-stable-devel".into(),
     ];
     for pkg in pkgs {
@@ -207,26 +209,27 @@ fn install_to_target(pkgs: &[String], target: &Path) -> Result<(), String> {
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     run(&arg_refs)?;
 
-    // Trigger ckms w `apk` bywa przerywany (BrokenPipe / znany błąd apk)
-    // i nie dokańcza modułu — budujemy go więc jawnie i synchronicznie.
+    // apk's ckms trigger tends to get interrupted (BrokenPipe / a known apk
+    // bug) and leaves the module unfinished — so we build it explicitly and
+    // synchronously.
     build_modules(target);
 
     configure_target(target)?;
 
     if !module_present(target) {
         log(
-            "OSTRZEŻENIE: mimo jawnej budowy nie znaleziono modułu jądra NVIDIA. \
-             Po uruchomieniu systemu spróbuj: doas sh -c 'IGNORE_CC_MISMATCH=1 \
-             ckms -k <wersja-jądra> build nvidia && ckms -k <wersja-jądra> install nvidia \
-             && depmod <wersja-jądra>'.",
+            "WARNING: no NVIDIA kernel module found despite the explicit build. \
+             After booting the system try: doas sh -c 'IGNORE_CC_MISMATCH=1 \
+             ckms -k <kernel-version> build nvidia && ckms -k <kernel-version> install nvidia \
+             && depmod <kernel-version>'.",
         );
     } else {
-        log("moduł jądra NVIDIA zbudowany i zainstalowany");
+        log("NVIDIA kernel module built and installed");
     }
     Ok(())
 }
 
-/// Czy w którymś z zainstalowanych jąder celu jest moduł nvidia*.ko*.
+/// Whether any of the target's installed kernels has an nvidia*.ko* module.
 fn module_present(target: &Path) -> bool {
     fn walk(dir: &Path) -> bool {
         let Ok(rd) = fs::read_dir(dir) else {
@@ -249,12 +252,13 @@ fn module_present(target: &Path) -> bool {
     walk(&target.join("usr/lib/modules"))
 }
 
-/// Jawna budowa modułów ckms w chroocie dla każdego zainstalowanego jądra
-/// z nagłówkami. Obfity output ckms idzie do pliku w celu (żeby nie urwać
-/// strumienia i nie zalać dziennika); do dziennika trafia tylko jego ogon.
+/// Explicit ckms module build in the chroot for every installed kernel that
+/// has headers. ckms's abundant output goes to a file in the target (so it
+/// does not cut the stream or flood the log); only its tail reaches the log.
 fn build_modules(target: &Path) {
-    // IGNORE_CC_MISMATCH: jądro Chimery bywa budowane innym kompilatorem niż
-    // moduł; sterownik NVIDIA tylko ostrzega, ale bez tego potrafi odmówić.
+    // IGNORE_CC_MISMATCH: Chimera's kernel may be built with a different
+    // compiler than the module; the NVIDIA driver only warns, but without
+    // this it can refuse.
     let script = "set +e\n\
         for ini in /usr/src/*/ckms.ini; do [ -e \"$ini\" ] && ckms add \"${ini%/ckms.ini}\" >/dev/null 2>&1; done\n\
         export IGNORE_CC_MISMATCH=1\n\
@@ -269,10 +273,11 @@ fn build_modules(target: &Path) {
           depmod \"$kv\"\n\
         done\n";
     let full = format!("{{ {script} }} >/ckms-install.log 2>&1");
-    log("buduję moduł jądra NVIDIA (ckms) — to potrwa kilka minut…");
+    log("building the NVIDIA kernel module (ckms) — this will take a few minutes…");
     let _ = run_in(target, &["sh", "-c", &full]);
 
-    // Ogon dziennika budowy do głównego logu (pełność i tak w build.log cbuilda).
+    // Tail of the build log into the main log (the full one is in cbuild's
+    // build.log anyway).
     if let Ok(data) = fs::read_to_string(target.join("ckms-install.log")) {
         let lines: Vec<&str> = data.lines().collect();
         let start = lines.len().saturating_sub(20);
@@ -283,18 +288,19 @@ fn build_modules(target: &Path) {
     let _ = fs::remove_file(target.join("ckms-install.log"));
 }
 
-/// Konfiguracja celu specyficzna dla sterownika zastrzeżonego.
-/// Blacklistę nouveau i firmware GSP dostarczają pakiety — nie dublujemy.
+/// Target configuration specific to the proprietary driver.
+/// The nouveau blacklist and the GSP firmware come with the packages — we
+/// do not duplicate them.
 fn configure_target(target: &Path) -> Result<(), String> {
-    // Modeset dla domyślnego Waylanda (gdm/sddm). initramfs-tools wciąga
-    // /etc/modprobe.d do initramfs; plik powstaje PRZED update-initramfs
-    // (krok GRUB-a jest później). Jeśli sterownik włącza modeset sam,
-    // ten wpis jest nieszkodliwy.
+    // Modeset for the default Wayland (gdm/sddm). initramfs-tools pulls
+    // /etc/modprobe.d into the initramfs; the file is created BEFORE
+    // update-initramfs (the GRUB step comes later). If the driver enables
+    // modeset by itself, this entry is harmless.
     let conf = target.join("etc/modprobe.d/nvidia-modeset.conf");
     fs::create_dir_all(conf.parent().unwrap())
         .map_err(|e| format!("mkdir modprobe.d: {e}"))?;
     fs::write(&conf, "options nvidia_drm modeset=1\n")
-        .map_err(|e| format!("zapis nvidia-modeset.conf: {e}"))?;
-    log("ustawiono nvidia_drm modeset=1 (Wayland)");
+        .map_err(|e| format!("writing nvidia-modeset.conf: {e}"))?;
+    log("set nvidia_drm modeset=1 (Wayland)");
     Ok(())
 }

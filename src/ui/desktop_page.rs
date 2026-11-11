@@ -1,5 +1,5 @@
-// Strona wyboru wariantu systemu (base / GNOME / KDE Plasma) —
-// dla instalacji sieciowej z live oraz dla instalacji z innego systemu.
+// The system variant choice page (base / GNOME / KDE Plasma) —
+// for network installations from live and for installations from another system.
 
 use super::{disk_page, edition_page, wizard_page, App};
 use crate::config::Desktop;
@@ -14,20 +14,20 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let entries: [(&str, &str, &str, Desktop); 3] = [
         (
-            "System bazowy",
-            "Konsola bez środowiska graficznego (base-full). Pulpit można doinstalować później.",
+            "Base system",
+            "A console without a graphical environment (base-full). A desktop can be added later.",
             "utilities-terminal-symbolic",
             Desktop::Base,
         ),
         (
             "GNOME",
-            "Środowisko GNOME z menedżerem logowania GDM (wariant na następnym ekranie).",
+            "The GNOME environment with the GDM login manager (edition on the next screen).",
             "preferences-desktop-appearance-symbolic",
             Desktop::Gnome,
         ),
         (
             "KDE Plasma",
-            "Środowisko KDE Plasma z menedżerem logowania SDDM (wariant na następnym ekranie).",
+            "The KDE Plasma environment with the SDDM login manager (edition on the next screen).",
             "preferences-desktop-theme-symbolic",
             Desktop::Kde,
         ),
@@ -44,7 +44,7 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         let app = app.clone();
         row.connect_activated(move |_| {
             app.draft.borrow_mut().desktop = Some(desktop);
-            // GNOME/KDE → wybór wariantu (base/full); System bazowy → dysk.
+            // GNOME/KDE → edition choice (base/full); base system → disk.
             match desktop {
                 Desktop::Base => app.nav.push(&disk_page::build(&app)),
                 _ => app.nav.push(&edition_page::build(&app)),
@@ -55,8 +55,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("preferences-desktop-display-symbolic")
-        .title("Wariant systemu")
-        .description("Wybierz, co ma zostać zainstalowane z repozytorium sieciowego.")
+        .title("System variant")
+        .description("Choose what to install from the network repository.")
         .child(
             &adw::Clamp::builder()
                 .maximum_size(520)
@@ -65,5 +65,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Wariant systemu", "desktop", &status)
+    wizard_page("System variant", "desktop", &status)
 }

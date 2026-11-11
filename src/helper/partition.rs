@@ -1,5 +1,5 @@
-// Partycjonowanie w helperze roota: weryfikacja planu z GUI na świeżym
-// skanie dysku, budowa skryptu sfdisk i odnalezienie nowych partycji.
+// Partitioning in the root helper: verifying the GUI's plan against a fresh
+// disk scan, building the sfdisk script and locating the new partitions.
 
 use super::cmd::{log, run, run_capture, run_soft, run_stdin};
 use crate::config::{
@@ -7,12 +7,12 @@ use crate::config::{
 };
 use crate::disks;
 
-/// Wynik partycjonowania: urządzenia, na których stanie system.
+/// Partitioning result: the devices the system will live on.
 pub struct TargetParts {
     pub root: String,
-    /// ESP do zamontowania pod /boot/efi (istniejąca albo świeżo utworzona).
+    /// ESP to mount under /boot/efi (existing or freshly created).
     pub esp: Option<String>,
-    /// Czy ESP wymaga mkfs.vfat (tylko świeżo utworzona).
+    /// Whether the ESP needs mkfs.vfat (freshly created only).
     pub esp_format: bool,
 }
 
@@ -22,11 +22,11 @@ fn find_disk(cfg: &InstallConfig) -> Result<disks::DiskInfo, String> {
     let all = disks::scan()?;
     all.into_iter()
         .find(|d| d.path == cfg.disk)
-        .ok_or_else(|| format!("dysk {} nie istnieje", cfg.disk))
+        .ok_or_else(|| format!("disk {} does not exist", cfg.disk))
 }
 
-/// Odmontowuje wszystko, co jest zamontowane z partycji danego dysku
-/// (tylko przy wymazywaniu całego dysku).
+/// Unmounts everything mounted from the given disk's partitions
+/// (only when wiping the whole disk).
 fn umount_disk(disk: &disks::DiskInfo) {
     for p in &disk.parts {
         for mp in &p.mountpoints {
@@ -43,19 +43,19 @@ fn settle() {
     run_soft(&["udevadm", "settle"]);
 }
 
-/// Po sfdisk odnajduje partycję po sektorze początkowym.
+/// After sfdisk, finds a partition by its start sector.
 fn part_by_start(disk_path: &str, start: u64) -> Result<String, String> {
     let all = disks::scan()?;
     let disk = all
         .iter()
         .find(|d| d.path == disk_path)
-        .ok_or_else(|| format!("dysk {disk_path} zniknął po partycjonowaniu"))?;
+        .ok_or_else(|| format!("disk {disk_path} disappeared after partitioning"))?;
     disk.parts
         .iter()
         .find(|p| p.start == start)
         .map(|p| p.path.clone())
         .ok_or_else(|| {
-            format!("nie znaleziono nowej partycji zaczynającej się w sektorze {start}")
+            format!("no new partition starting at sector {start} was found")
         })
 }
 
@@ -63,7 +63,7 @@ pub fn apply(cfg: &InstallConfig) -> Result<TargetParts, String> {
     let disk = find_disk(cfg)?;
     if disk.busy_system {
         return Err(format!(
-            "dysk {} zawiera zamontowany system — przerwano",
+            "disk {} contains a mounted system — aborted",
             cfg.disk
         ));
     }
@@ -74,8 +74,8 @@ pub fn apply(cfg: &InstallConfig) -> Result<TargetParts, String> {
     }
 }
 
-/// Cały dysk: nowa tablica GPT. UEFI: ESP 1 GiB + root.
-/// BIOS: partycja "BIOS boot" 1 MiB + root.
+/// Whole disk: a new GPT table. UEFI: 1 GiB ESP + root.
+/// BIOS: a 1 MiB "BIOS boot" partition + root.
 fn apply_whole(cfg: &InstallConfig, disk: &disks::DiskInfo) -> Result<TargetParts, String> {
     umount_disk(disk);
     run(&["wipefs", "-a", &cfg.disk])?;
@@ -102,30 +102,30 @@ fn apply_whole(cfg: &InstallConfig, disk: &disks::DiskInfo) -> Result<TargetPart
     let esp = cfg.uefi.then(|| disks::part_dev(&cfg.disk, 1));
     for dev in esp.iter().chain(std::iter::once(&root)) {
         if !std::path::Path::new(dev).exists() {
-            return Err(format!("urządzenie {dev} nie pojawiło się po partycjonowaniu"));
+            return Err(format!("device {dev} did not appear after partitioning"));
         }
     }
     Ok(TargetParts { root, esp, esp_format: cfg.uefi })
 }
 
-/// Wolne miejsce: dopisanie partycji bez naruszania istniejących.
+/// Free space: appending partitions without touching the existing ones.
 fn apply_free(
     cfg: &InstallConfig,
     disk: &disks::DiskInfo,
     start: u64,
     sectors: u64,
 ) -> Result<TargetParts, String> {
-    // Świeża weryfikacja: luka z planu musi nadal istnieć w niezmienionym miejscu.
+    // Fresh verification: the planned gap must still exist, unmoved.
     let gap = disks::largest_gap(disk)
-        .ok_or("na dysku nie ma już wolnego miejsca — układ zmienił się od skanowania")?;
+        .ok_or("the disk has no free space anymore — the layout changed since scanning")?;
     if gap.start != start || gap.sectors < sectors {
         return Err(format!(
-            "układ dysku zmienił się od skanowania (oczekiwano luki {}+{}, jest {}+{}) — przerwano",
+            "the disk layout changed since scanning (expected gap {}+{}, found {}+{}) — aborted",
             start, sectors, gap.start, gap.sectors
         ));
     }
     if cfg.pttype.as_deref() == Some("dos") && disk.parts.len() >= 4 {
-        return Err("tablica MBR ma już 4 partycje główne — brak wolnego slotu".into());
+        return Err("the MBR table already has 4 primary partitions — no free slot".into());
     }
 
     let is_gpt = cfg.pttype.as_deref() == Some("gpt");
@@ -157,9 +157,9 @@ fn apply_free(
 
     let script = lines.join("\n") + "\n";
     if let Err(e) = run_stdin(&["sfdisk", "--append", &cfg.disk], &script, false) {
-        // Zamontowane sąsiednie partycje potrafią zablokować ponowny odczyt
-        // tablicy; wtedy dopisujemy bez niego i odświeżamy partprobe.
-        log(&format!("sfdisk --append nie powiódł się ({e}), ponawiam z --no-reread"));
+        // Mounted neighboring partitions can block the table re-read;
+        // in that case append without it and refresh with partprobe.
+        log(&format!("sfdisk --append failed ({e}), retrying with --no-reread"));
         run_stdin(&["sfdisk", "--append", "--no-reread", &cfg.disk], &script, false)?;
         run_soft(&["partprobe", &cfg.disk]);
     }
@@ -172,12 +172,12 @@ fn apply_free(
         cfg.esp_reuse.clone()
     };
     if let Some(s) = biosboot_start {
-        // Tylko kontrola istnienia; GRUB sam znajdzie partycję BIOS boot.
+        // Existence check only; GRUB finds the BIOS boot partition itself.
         part_by_start(&cfg.disk, s)?;
     }
 
-    // Świeże partycje mogą zawierać stare sygnatury z czasów, gdy obszar
-    // należał do innej partycji.
+    // Fresh partitions may contain stale signatures from the days the area
+    // belonged to another partition.
     run_soft(&["wipefs", "-a", &root]);
     if esp_start.is_some() {
         if let Some(e) = &esp {
@@ -192,12 +192,12 @@ fn apply_free(
     })
 }
 
-/// UUID systemu plików (blkid).
+/// Filesystem UUID (blkid).
 pub fn fs_uuid(dev: &str) -> Result<String, String> {
     let out = run_capture(&["blkid", "-s", "UUID", "-o", "value", dev])?;
     let uuid = out.trim().to_string();
     if uuid.is_empty() {
-        return Err(format!("blkid nie zwrócił UUID dla {dev}"));
+        return Err(format!("blkid returned no UUID for {dev}"));
     }
     Ok(uuid)
 }

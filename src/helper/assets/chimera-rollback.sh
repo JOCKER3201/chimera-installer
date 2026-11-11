@@ -1,18 +1,18 @@
 #!/bin/sh
-# chimera-rollback — przywracanie migawki btrfs z WIERSZA POLECEŃ, bez GUI
-# i bez sterownika graficznego (działa z konsoli tty, przez SSH, a także
-# z bootniętej migawki read-only albo z live USB).
+# chimera-rollback — restoring a btrfs snapshot from the COMMAND LINE, with
+# no GUI and no graphics driver (works from a tty console, over SSH, and
+# also from a booted read-only snapshot or a live USB).
 #
-# Model jak w CachyOS: / to STAŁY subwolumen @, a przywrócenie polega na
-# PODMIANIE zawartości @ — stare @ idzie na bok, w jego miejsce powstaje
-# zapisywalna kopia wybranej migawki. Dzięki temu waniliowy GRUB (który
-# zawsze montuje subvol=@) po zwykłym reboocie wstaje z przywróconego
-# systemu, bez żadnej regeneracji grub.cfg ani łatania bootloadera.
+# The CachyOS model: / is a FIXED @ subvolume, and a restore means SWAPPING
+# the contents of @ — the old @ is moved aside, and a writable copy of the
+# chosen snapshot takes its place. Thanks to that, vanilla GRUB (which
+# always mounts subvol=@) boots the restored system after a plain reboot,
+# with no grub.cfg regeneration and no bootloader patching.
 #
-# Migawki leżą w osobnym subwolumenie @snapshots (montowanym na /.snapshots),
-# więc podmiana @ ich nie narusza.
+# Snapshots live in the separate @snapshots subvolume (mounted at
+# /.snapshots), so swapping @ does not touch them.
 #
-# Napisane od zera dla chimera-installer (MIT). Używa tylko snappera i btrfs.
+# Written from scratch for chimera-installer (MIT). Uses only snapper and btrfs.
 set -eu
 
 TOP=/run/chimera-rollback
@@ -20,17 +20,17 @@ SNAPSUBVOL=@snapshots
 
 err() { echo "chimera-rollback: $*" >&2; exit 1; }
 
-[ "$(id -u)" = 0 ] || err "uruchom jako root (doas chimera-rollback ...)"
+[ "$(id -u)" = 0 ] || err "run as root (doas chimera-rollback ...)"
 
 usage() {
-    echo "Użycie: chimera-rollback <numer-migawki>"
-    echo "        chimera-rollback list        # pokaż dostępne migawki"
+    echo "Usage: chimera-rollback <snapshot-number>"
+    echo "       chimera-rollback list        # show the available snapshots"
     echo
-    echo "Przywraca system do wskazanej migawki (podmiana subwolumenu @)."
-    echo "Po wykonaniu zrestartuj komputer: reboot"
+    echo "Restores the system to the given snapshot (swaps the @ subvolume)."
+    echo "When done, restart the computer: reboot"
 }
 
-# Urządzenie btrfs, na którym leży bieżący root (bez sufiksu [subvol]).
+# The btrfs device the current root lives on (without the [subvol] suffix).
 root_dev() {
     findmnt -n -v -o SOURCE / | sed 's/\[.*//'
 }
@@ -39,8 +39,8 @@ do_list() {
     if command -v snapper >/dev/null 2>&1; then
         snapper -c root list 2>/dev/null && return 0
     fi
-    # Zapas: surowy spis katalogów migawek.
-    echo "migawki w ${SNAPSUBVOL}:"
+    # Fallback: a raw listing of the snapshot directories.
+    echo "snapshots in ${SNAPSUBVOL}:"
     for d in "$TOP/$SNAPSUBVOL"/*/snapshot; do
         [ -d "$d" ] || continue
         n=$(basename "$(dirname "$d")")
@@ -49,7 +49,7 @@ do_list() {
 }
 
 dev=$(root_dev)
-[ -n "$dev" ] || err "nie udało się ustalić urządzenia roota"
+[ -n "$dev" ] || err "could not determine the root device"
 
 mkdir -p "$TOP"
 mounted=0
@@ -66,32 +66,32 @@ esac
 
 num="$1"
 case "$num" in
-    *[!0-9]*) err "numer migawki musi być liczbą (zob. chimera-rollback list)" ;;
+    *[!0-9]*) err "the snapshot number must be numeric (see chimera-rollback list)" ;;
 esac
 
 src="$TOP/$SNAPSUBVOL/$num/snapshot"
-[ -d "$src" ] || err "migawka nr $num nie istnieje ($src)"
+[ -d "$src" ] || err "snapshot no. $num does not exist ($src)"
 
-[ -e "$TOP/@" ] || err "brak subwolumenu @ — nieoczekiwany układ dysku"
+[ -e "$TOP/@" ] || err "no @ subvolume — unexpected disk layout"
 
 stamp=$(date +%Y%m%d-%H%M%S)
 backup="@_rollback_backup_$stamp"
 
-echo "Przywracam system z migawki nr $num."
-echo "Bieżący @ zostanie zachowany jako $backup."
+echo "Restoring the system from snapshot no. $num."
+echo "The current @ will be kept as $backup."
 
-# Podmiana: stare @ na bok, zapisywalna kopia migawki w miejsce @.
+# The swap: old @ aside, a writable copy of the snapshot in place of @.
 mv "$TOP/@" "$TOP/$backup"
 if ! btrfs subvolume snapshot "$src" "$TOP/@"; then
-    # Awaria — przywróć poprzedni @, żeby system pozostał rozruchowy.
+    # Failure — bring the previous @ back so the system stays bootable.
     rm -rf "$TOP/@" 2>/dev/null || true
     mv "$TOP/$backup" "$TOP/@"
-    err "nie udało się utworzyć nowego @ — przywrócono stan sprzed rollbacku"
+    err "could not create the new @ — the pre-rollback state was restored"
 fi
 
 echo
-echo "Gotowe. Zrestartuj komputer, aby uruchomić przywrócony system:"
+echo "Done. Restart the computer to boot the restored system:"
 echo "    reboot"
 echo
-echo "Kopia poprzedniego stanu: $backup (możesz ją później usunąć:"
-echo "    doas btrfs subvolume delete /.snapshots/../$backup  — po zamontowaniu subvolid=5)."
+echo "Copy of the previous state: $backup (you can delete it later:"
+echo "    doas btrfs subvolume delete /.snapshots/../$backup  — after mounting subvolid=5)."

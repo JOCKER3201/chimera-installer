@@ -1,4 +1,4 @@
-// GUI instalatora: libadwaita, nawigacja stronami kreatora.
+// The installer GUI: libadwaita, wizard page navigation.
 
 mod desktop_page;
 mod disk_page;
@@ -17,7 +17,7 @@ use adw::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Wybór dysku wraz z decyzją o strategii z okna dialogowego.
+/// The disk choice together with the strategy decision from the dialog.
 #[derive(Clone)]
 pub struct DiskChoice {
     pub disk: DiskInfo,
@@ -26,7 +26,7 @@ pub struct DiskChoice {
     pub biosboot_present: bool,
 }
 
-/// Dane zbierane przez kolejne strony kreatora.
+/// Data collected by the consecutive wizard pages.
 #[derive(Default)]
 pub struct Draft {
     pub mode: Option<Mode>,
@@ -59,7 +59,7 @@ impl App {
     }
 }
 
-/// Strona kreatora w standardowym opakowaniu (pasek nagłówka + zawartość).
+/// A wizard page in the standard wrapper (header bar + content).
 pub fn wizard_page(title: &str, tag: &str, content: &impl IsA<gtk::Widget>) -> adw::NavigationPage {
     let tv = adw::ToolbarView::new();
     tv.add_top_bar(&adw::HeaderBar::new());
@@ -71,9 +71,9 @@ pub fn wizard_page(title: &str, tag: &str, content: &impl IsA<gtk::Widget>) -> a
         .build()
 }
 
-/// Atrapa trybu zaawansowanego — zgodnie z założeniem na razie tylko informuje.
+/// Advanced mode stub — by design it only informs for now.
 pub fn advanced_mode_stub(app: &Rc<App>) {
-    app.toast("Tryb zaawansowany nie jest jeszcze dostępny w tej wersji instalatora.");
+    app.toast("Advanced mode is not available in this version of the installer yet.");
 }
 
 pub fn run() -> i32 {
@@ -88,7 +88,7 @@ pub fn run() -> i32 {
 
         let win = adw::ApplicationWindow::builder()
             .application(gtk_app)
-            .title("Instalator Chimera Linux")
+            .title("Chimera Linux Installer")
             .default_width(760)
             .default_height(600)
             .content(&toasts)
@@ -105,6 +105,6 @@ pub fn run() -> i32 {
         win.present();
     });
 
-    // Pusta lista argumentów — argv obsłużyliśmy sami w main().
+    // Empty argument list — argv was already handled in main().
     application.run_with_args::<&str>(&[]).value()
 }

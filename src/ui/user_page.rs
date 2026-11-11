@@ -1,4 +1,4 @@
-// Strona konta użytkownika i roota.
+// The user and root account page.
 
 use super::{summary_page, wizard_page, App};
 use adw::prelude::*;
@@ -18,10 +18,10 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         .css_classes(["boxed-list"])
         .build();
     let username = adw::EntryRow::builder()
-        .title("Nazwa użytkownika (grupa wheel)")
+        .title("Username (wheel group)")
         .build();
-    let pass1 = adw::PasswordEntryRow::builder().title("Hasło").build();
-    let pass2 = adw::PasswordEntryRow::builder().title("Powtórz hasło").build();
+    let pass1 = adw::PasswordEntryRow::builder().title("Password").build();
+    let pass2 = adw::PasswordEntryRow::builder().title("Repeat password").build();
     user_list.append(&username);
     user_list.append(&pass1);
     user_list.append(&pass2);
@@ -31,16 +31,16 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         .css_classes(["boxed-list"])
         .build();
     let root1 = adw::PasswordEntryRow::builder()
-        .title("Hasło roota (puste = konto zablokowane)")
+        .title("Root password (empty = account locked)")
         .build();
     let root2 = adw::PasswordEntryRow::builder()
-        .title("Powtórz hasło roota")
+        .title("Repeat root password")
         .build();
     root_list.append(&root1);
     root_list.append(&root2);
 
     let next = gtk::Button::builder()
-        .label("Dalej")
+        .label("Next")
         .halign(gtk::Align::Center)
         .css_classes(["suggested-action", "pill"])
         .build();
@@ -52,19 +52,19 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         next.connect_clicked(move |_| {
             let user = username.text().trim().to_string();
             if !valid_username(&user) {
-                app.toast("Niepoprawna nazwa użytkownika (małe litery, cyfry, _ i -).");
+                app.toast("Invalid username (lowercase letters, digits, _ and -).");
                 return;
             }
             if pass1.text().is_empty() {
-                app.toast("Hasło użytkownika nie może być puste.");
+                app.toast("The user password cannot be empty.");
                 return;
             }
             if pass1.text() != pass2.text() {
-                app.toast("Hasła użytkownika nie są identyczne.");
+                app.toast("The user passwords do not match.");
                 return;
             }
             if root1.text() != root2.text() {
-                app.toast("Hasła roota nie są identyczne.");
+                app.toast("The root passwords do not match.");
                 return;
             }
             {
@@ -91,8 +91,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("system-users-symbolic")
-        .title("Użytkownik")
-        .description("Konto zostanie dodane do grupy wheel (uprawnienia administracyjne przez doas).")
+        .title("User")
+        .description("The account will be added to the wheel group (administrative rights via doas).")
         .child(
             &adw::Clamp::builder()
                 .maximum_size(520)
@@ -101,5 +101,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Użytkownik", "user", &status)
+    wizard_page("User", "user", &status)
 }

@@ -1,5 +1,6 @@
-# chimera-installer: automatyczne update-grub po zmianie migawek btrfs.
-# Pilnuje /.snapshots i odświeża menu GRUB po utworzeniu/usunięciu migawki.
+# chimera-installer: automatic update-grub after btrfs snapshot changes.
+# Watches /.snapshots and refreshes the GRUB menu after a snapshot is
+# created or deleted.
 type = process
 command = /usr/bin/chimera-grub-watch
 smooth-recovery = true

@@ -1,16 +1,16 @@
 #!/bin/sh
-# 80_snapshots — wpisy GRUB do bootowania migawek btrfs w trybie read-only
-# (układ w stylu CachyOS: migawki w osobnym subwolumenie @snapshots).
-# Część chimera-installer; napisane od zera, bez kodu grub-btrfs/openSUSE.
+# 80_snapshots — GRUB entries for booting btrfs snapshots read-only
+# (CachyOS-style layout: snapshots in the separate @snapshots subvolume).
+# Part of chimera-installer; written from scratch, no grub-btrfs/openSUSE code.
 #
-# Działa na WANILIOWYM GRUB: brak domyślnego subwolumenu (set-default) sprawia,
-# że GRUB czyta drzewo btrfs od top-level, więc ścieżki /@snapshots/N/snapshot/...
-# są bezpośrednio osiągalne. Każdy wpis ładuje własny kernel migawki i montuje
-# ją jako root read-only (rootflags=subvol=@snapshots/N/snapshot ro).
+# Works on VANILLA GRUB: with no default subvolume (set-default), GRUB reads
+# the btrfs tree from the top level, so paths like /@snapshots/N/snapshot/...
+# are directly reachable. Each entry loads the snapshot's own kernel and
+# mounts it as a read-only root (rootflags=subvol=@snapshots/N/snapshot ro).
 #
-# To ścieżka ratunkowa „gdy system nie wstaje": bootujesz migawkę i z jej
-# konsoli wykonujesz `chimera-rollback N`. Zwykły rollback robi się wprost
-# z działającego systemu, bez tego menu.
+# This is the rescue path for "the system does not come up": you boot a
+# snapshot and run `chimera-rollback N` from its console. A regular rollback
+# is done straight from the running system, without this menu.
 set -e
 
 [ -d /.snapshots ] || exit 0
@@ -26,7 +26,7 @@ for snapdir in /.snapshots/*/; do
     case "$num" in
         *[!0-9]*) continue ;;
     esac
-    # Migawkę nr 1 (FABRIC) obsługuje osobny, stały wpis 12_fabric.
+    # Snapshot no. 1 (FABRIC) is handled by the separate, permanent 12_fabric entry.
     [ "$num" = 1 ] && continue
     snap="${snapdir}snapshot"
     [ -d "$snap" ] || continue
@@ -53,12 +53,12 @@ for snapdir in /.snapshots/*/; do
     fi
 
     if [ "$first" = 1 ]; then
-        echo "80_snapshots: dodaję wpisy rozruchowe migawek btrfs" >&2
-        echo "submenu 'Chimera — migawki btrfs (read-only)' {"
+        echo "80_snapshots: adding btrfs snapshot boot entries" >&2
+        echo "submenu 'Chimera — btrfs snapshots (read-only)' {"
         first=0
     fi
 
-    title="Migawka $num"
+    title="Snapshot $num"
     [ -n "$date" ] && title="$title — $date"
     [ -n "$desc" ] && title="$title — $desc"
     subvol="@snapshots/$num/snapshot"

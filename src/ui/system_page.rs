@@ -1,5 +1,5 @@
-// Strona „System": nazwa komputera, strefa czasowa (dialog kontynent→strefa),
-// język i układ klawiatury (dialog układ + wariant).
+// The "System" page: computer name, time zone (continent→zone dialog),
+// language and keyboard layout (layout + variant dialog).
 
 use super::{user_page, wizard_page, App};
 use crate::sysdata;
@@ -15,7 +15,7 @@ fn valid_hostname(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
-/// Opis układu klawiatury do podtytułu wiersza.
+/// Keyboard layout description for the row subtitle.
 fn kb_label(layout: &str, variant: &str) -> String {
     let lname = sysdata::kb_layouts()
         .into_iter()
@@ -35,7 +35,7 @@ fn kb_label(layout: &str, variant: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Dialog strefy czasowej: kontynent → strefa
+// Time zone dialog: continent → zone
 // ---------------------------------------------------------------------------
 
 fn present_timezone_dialog(app: &Rc<App>, row: &adw::ActionRow) {
@@ -43,18 +43,18 @@ fn present_timezone_dialog(app: &Rc<App>, row: &adw::ActionRow) {
     let region_refs: Vec<&str> = regions.iter().map(String::as_str).collect();
 
     let region_row = adw::ComboRow::builder()
-        .title("Kontynent")
+        .title("Continent")
         .model(&gtk::StringList::new(&region_refs))
         .build();
-    let city_row = adw::ComboRow::builder().title("Strefa").build();
+    let city_row = adw::ComboRow::builder().title("Zone").build();
 
-    // Bieżąca strefa z draftu, np. "Europe/Warsaw".
+    // The current zone from the draft, e.g. "Europe/Warsaw".
     let cur_tz = app.draft.borrow().timezone.clone();
     let (cur_region, cur_city) = cur_tz.split_once('/').unwrap_or(("Europe", "Warsaw"));
     let region_start = regions.iter().position(|r| r == cur_region).unwrap_or(0);
     region_row.set_selected(region_start as u32);
 
-    // Miasta zależne od kontynentu (wartości: "Warsaw", "Argentina/Buenos_Aires").
+    // Cities depend on the continent (values: "Warsaw", "Argentina/Buenos_Aires").
     let cities_state: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let refresh_cities = {
         let regions = regions.clone();
@@ -86,7 +86,7 @@ fn present_timezone_dialog(app: &Rc<App>, row: &adw::ActionRow) {
     list.append(&city_row);
 
     let choose = gtk::Button::builder()
-        .label("Wybierz")
+        .label("Choose")
         .halign(gtk::Align::Center)
         .css_classes(["suggested-action", "pill"])
         .margin_top(12)
@@ -107,7 +107,7 @@ fn present_timezone_dialog(app: &Rc<App>, row: &adw::ActionRow) {
     tv.add_top_bar(&adw::HeaderBar::new());
     tv.set_content(Some(&content));
     let dialog = adw::Dialog::builder()
-        .title("Strefa czasowa")
+        .title("Time zone")
         .content_width(460)
         .child(&tv)
         .build();
@@ -138,7 +138,7 @@ fn present_timezone_dialog(app: &Rc<App>, row: &adw::ActionRow) {
 }
 
 // ---------------------------------------------------------------------------
-// Dialog klawiatury: układ + wariant
+// Keyboard dialog: layout + variant
 // ---------------------------------------------------------------------------
 
 fn present_keyboard_dialog(app: &Rc<App>, row: &adw::ActionRow) {
@@ -148,12 +148,12 @@ fn present_keyboard_dialog(app: &Rc<App>, row: &adw::ActionRow) {
     let layout_model = gtk::StringList::new(&label_refs);
 
     let layout_row = adw::ComboRow::builder()
-        .title("Układ")
+        .title("Layout")
         .model(&layout_model)
         .build();
-    let variant_row = adw::ComboRow::builder().title("Wariant").build();
+    let variant_row = adw::ComboRow::builder().title("Variant").build();
 
-    // Ustawienie początkowe na bieżący wybór z draftu.
+    // Initial selection from the current draft value.
     let cur_layout = app.draft.borrow().kb_layout.clone();
     let start_idx = layouts.iter().position(|(c, _)| *c == cur_layout).unwrap_or(0) as u32;
     layout_row.set_selected(start_idx);
@@ -186,7 +186,7 @@ fn present_keyboard_dialog(app: &Rc<App>, row: &adw::ActionRow) {
     list.append(&variant_row);
 
     let choose = gtk::Button::builder()
-        .label("Wybierz")
+        .label("Choose")
         .halign(gtk::Align::Center)
         .css_classes(["suggested-action", "pill"])
         .margin_top(12)
@@ -207,7 +207,7 @@ fn present_keyboard_dialog(app: &Rc<App>, row: &adw::ActionRow) {
     tv.add_top_bar(&adw::HeaderBar::new());
     tv.set_content(Some(&content));
     let dialog = adw::Dialog::builder()
-        .title("Układ klawiatury")
+        .title("Keyboard layout")
         .content_width(460)
         .child(&tv)
         .build();
@@ -243,11 +243,11 @@ fn present_keyboard_dialog(app: &Rc<App>, row: &adw::ActionRow) {
 }
 
 // ---------------------------------------------------------------------------
-// Strona
+// Page
 // ---------------------------------------------------------------------------
 
 pub fn build(app: &Rc<App>) -> adw::NavigationPage {
-    // Inicjalizacja draftu domyślnymi wartościami (przy pierwszym wejściu).
+    // Initialize the draft with defaults (on first entry).
     {
         let mut d = app.draft.borrow_mut();
         if d.timezone.is_empty() {
@@ -279,12 +279,12 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         .css_classes(["boxed-list"])
         .build();
 
-    let hostname = adw::EntryRow::builder().title("Nazwa komputera").text(&cur_host).build();
+    let hostname = adw::EntryRow::builder().title("Computer name").text(&cur_host).build();
     list.append(&hostname);
 
-    // Strefa czasowa — wiersz otwierający dialog.
+    // Time zone — a row opening the dialog.
     let tz_row = adw::ActionRow::builder()
-        .title("Strefa czasowa")
+        .title("Time zone")
         .subtitle(&cur_tz)
         .activatable(true)
         .build();
@@ -296,12 +296,12 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     }
     list.append(&tz_row);
 
-    // Język — lista rozwijana.
+    // Language — a dropdown list.
     let locales = sysdata::locales();
     let loc_labels: Vec<&str> = locales.iter().map(|(n, _)| *n).collect();
     let lang_row = adw::ComboRow::builder()
-        .title("Język")
-        .subtitle("Pełne tłumaczenia systemu bazowego tylko dla części języków (musl)")
+        .title("Language")
+        .subtitle("Full base system translations only for some languages (musl)")
         .model(&gtk::StringList::new(&loc_labels))
         .build();
     let lang_start = locales.iter().position(|(_, v)| *v == cur_locale).unwrap_or(0) as u32;
@@ -317,9 +317,9 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     }
     list.append(&lang_row);
 
-    // Układ klawiatury — wiersz otwierający dialog.
+    // Keyboard layout — a row opening the dialog.
     let kb_row = adw::ActionRow::builder()
-        .title("Układ klawiatury")
+        .title("Keyboard layout")
         .subtitle(&kb_label(&cur_layout, &cur_variant))
         .activatable(true)
         .build();
@@ -331,10 +331,10 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     }
     list.append(&kb_row);
 
-    // Serwer SSH — domyślnie wyłączony.
+    // SSH server — disabled by default.
     let ssh_row = adw::SwitchRow::builder()
-        .title("Serwer SSH (sshd)")
-        .subtitle("Zdalne logowanie przez SSH; domyślnie wyłączone.")
+        .title("SSH server (sshd)")
+        .subtitle("Remote login over SSH; disabled by default.")
         .active(app.draft.borrow().enable_ssh)
         .build();
     {
@@ -346,7 +346,7 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     list.append(&ssh_row);
 
     let next = gtk::Button::builder()
-        .label("Dalej")
+        .label("Next")
         .halign(gtk::Align::Center)
         .css_classes(["suggested-action", "pill"])
         .build();
@@ -356,7 +356,7 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         next.connect_clicked(move |_| {
             let host = hostname.text().trim().to_string();
             if !valid_hostname(&host) {
-                app.toast("Niepoprawna nazwa komputera (litery, cyfry i myślniki).");
+                app.toast("Invalid computer name (letters, digits and hyphens).");
                 return;
             }
             app.draft.borrow_mut().hostname = host;
@@ -374,7 +374,7 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     let status = adw::StatusPage::builder()
         .icon_name("preferences-system-symbolic")
         .title("System")
-        .description("Nazwa komputera, strefa czasowa, język i układ klawiatury (działają też w konsoli tty).")
+        .description("Computer name, time zone, language and keyboard layout (they apply in the tty console too).")
         .child(&adw::Clamp::builder().maximum_size(520).child(&content).build())
         .build();
 

@@ -1,6 +1,6 @@
-// Skanowanie dysków po stronie GUI (bez roota) przez `lsblk -J` oraz
-// wyliczanie największej luki nieprzydzielonego miejsca z danych sysfs.
-// Helper roota używa tych samych funkcji do ponownej weryfikacji planu.
+// Disk scanning on the GUI side (no root) via `lsblk -J`, plus computing
+// the largest unallocated gap from sysfs data.
+// The root helper uses the same functions to re-verify the plan.
 
 use crate::config::{BIOSBOOT_GUID, ESP_GUID, SECTOR};
 use std::process::Command;
@@ -8,9 +8,9 @@ use std::process::Command;
 #[derive(Clone, Debug)]
 pub struct PartInfo {
     pub path: String,
-    /// Początek partycji w sektorach 512 B.
+    /// Partition start in 512 B sectors.
     pub start: u64,
-    /// Rozmiar partycji w bajtach.
+    /// Partition size in bytes.
     pub size: u64,
     pub parttype: Option<String>,
     pub fstype: Option<String>,
@@ -22,19 +22,19 @@ pub struct DiskInfo {
     pub path: String,
     pub model: String,
     pub tran: Option<String>,
-    /// Rozmiar dysku w bajtach.
+    /// Disk size in bytes.
     pub size: u64,
     pub pttype: Option<String>,
     pub parts: Vec<PartInfo>,
-    /// Czy którakolwiek partycja jest zamontowana jako część działającego systemu.
+    /// Whether any partition is mounted as part of the running system.
     pub busy_system: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Gap {
-    /// Początek luki w sektorach 512 B (wyrównany do 2048).
+    /// Gap start in 512 B sectors (aligned to 2048).
     pub start: u64,
-    /// Długość luki w sektorach 512 B.
+    /// Gap length in 512 B sectors.
     pub sectors: u64,
 }
 
@@ -48,8 +48,8 @@ const SYSTEM_MOUNTS: &[&str] = &[
     "/", "/sysroot", "/boot", "/boot/efi", "/home", "/var", "/usr", "/etc", "/nix",
 ];
 
-/// Prefiksy łapią też montowania składowe (np. /var/home na Bazzite,
-/// /usr/share/... z nakładek), których dokładna lista nie wymieni.
+/// Prefixes also catch nested mounts (e.g. /var/home on Bazzite,
+/// /usr/share/... from overlays) that no exact list would enumerate.
 const SYSTEM_PREFIXES: &[&str] = &[
     "/sysroot/", "/boot/", "/home/", "/var/", "/usr/", "/etc/", "/nix/",
     "/run/initramfs", "/run/live", "/run/rootfsbase",
@@ -80,19 +80,19 @@ pub fn scan() -> Result<Vec<DiskInfo>, String> {
             "PATH,NAME,TYPE,SIZE,START,PTTYPE,PARTTYPE,FSTYPE,MODEL,TRAN,RM,RO,MOUNTPOINTS",
         ])
         .output()
-        .map_err(|e| format!("nie można uruchomić lsblk: {e}"))?;
+        .map_err(|e| format!("cannot run lsblk: {e}"))?;
     if !out.status.success() {
         return Err(format!(
-            "lsblk zakończył się błędem: {}",
+            "lsblk exited with an error: {}",
             String::from_utf8_lossy(&out.stderr)
         ));
     }
     let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-        .map_err(|e| format!("niepoprawny JSON z lsblk: {e}"))?;
+        .map_err(|e| format!("invalid JSON from lsblk: {e}"))?;
     let devices = json
         .get("blockdevices")
         .and_then(|d| d.as_array())
-        .ok_or("brak klucza blockdevices w wyjściu lsblk")?;
+        .ok_or("no blockdevices key in lsblk output")?;
 
     let mut disks = Vec::new();
     for dev in devices {
@@ -110,7 +110,7 @@ pub fn scan() -> Result<Vec<DiskInfo>, String> {
             Some(p) => p,
             None => continue,
         };
-        // Pomijamy urządzenia wirtualne, które lsblk raportuje jako "disk".
+        // Skip virtual devices that lsblk reports as "disk".
         if path.starts_with("/dev/zram") || path.starts_with("/dev/loop") {
             continue;
         }
@@ -164,11 +164,11 @@ fn align_up(sector: u64, align: u64) -> u64 {
     sector.div_ceil(align) * align
 }
 
-/// Największy ciągły obszar nieprzydzielonego miejsca na dysku.
-/// Uwzględnia wyrównanie do 1 MiB i zapasowy nagłówek GPT na końcu dysku.
+/// The largest contiguous unallocated area on the disk.
+/// Accounts for 1 MiB alignment and the backup GPT header at the disk's end.
 pub fn largest_gap(disk: &DiskInfo) -> Option<Gap> {
     let disk_sectors = disk.size / SECTOR;
-    // 2048 sektorów rezerwy na końcu pokrywa zapasową tablicę GPT (33 sektory).
+    // A 2048-sector reserve at the end covers the backup GPT table (33 sectors).
     let usable_end = disk_sectors.saturating_sub(2048);
     let mut cursor = 2048u64;
     let mut best: Option<Gap> = None;
@@ -193,7 +193,7 @@ pub fn largest_gap(disk: &DiskInfo) -> Option<Gap> {
     best
 }
 
-/// Istniejąca partycja ESP (GPT GUID albo 0xef na MBR) z systemem plików VFAT.
+/// Existing ESP partition (GPT GUID or 0xef on MBR) with a VFAT filesystem.
 pub fn find_esp(disk: &DiskInfo) -> Option<String> {
     disk.parts
         .iter()
@@ -210,8 +210,8 @@ pub fn has_biosboot(disk: &DiskInfo) -> bool {
         .any(|p| p.parttype.as_deref() == Some(BIOSBOOT_GUID))
 }
 
-/// Czy dysk jest pusty z punktu widzenia prostego trybu instalacji
-/// (brak tablicy partycji lub tablica bez żadnych partycji).
+/// Whether the disk is empty from the simple installation mode's point of
+/// view (no partition table, or a table with no partitions at all).
 pub fn is_empty(disk: &DiskInfo) -> bool {
     disk.parts.is_empty()
 }
@@ -220,7 +220,7 @@ pub fn host_is_uefi() -> bool {
     std::path::Path::new("/sys/firmware/efi").exists()
 }
 
-/// Nazwa urządzenia n-tej partycji dysku (sda -> sda3, nvme0n1 -> nvme0n1p3).
+/// Device name of the disk's n-th partition (sda -> sda3, nvme0n1 -> nvme0n1p3).
 pub fn part_dev(disk: &str, n: u32) -> String {
     if disk.chars().last().is_some_and(|c| c.is_ascii_digit()) {
         format!("{disk}p{n}")

@@ -1,19 +1,19 @@
-// Listy wyboru dla strony „System": strefy czasowe (z /usr/share/zoneinfo),
-// języki (LANG) oraz układy/warianty klawiatury (z xkb evdev.lst hosta).
-// Wszystko czytane po stronie GUI (bez roota).
+// Choice lists for the "System" page: time zones (from /usr/share/zoneinfo),
+// languages (LANG) and keyboard layouts/variants (from the host's xkb
+// evdev.lst). All read on the GUI side (no root).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 const ZONEINFO: &str = "/usr/share/zoneinfo";
 
-/// Kontynenty/oceany pokazywane jako pierwszy poziom wyboru strefy.
+/// Continents/oceans shown as the first level of the zone choice.
 const TZ_REGIONS: &[&str] = &[
     "Africa", "America", "Antarctica", "Arctic", "Asia", "Atlantic", "Australia", "Europe",
     "Indian", "Pacific",
 ];
 
-/// Regiony stref czasowych faktycznie obecne na hoście (zachowana kolejność).
+/// Time zone regions actually present on the host (order preserved).
 pub fn tz_regions() -> Vec<String> {
     TZ_REGIONS
         .iter()
@@ -42,7 +42,7 @@ fn collect_zones(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     }
 }
 
-/// Strefy (miasta) w regionie, np. "Warsaw" albo "Argentina/Buenos_Aires".
+/// Zones (cities) within a region, e.g. "Warsaw" or "Argentina/Buenos_Aires".
 pub fn tz_cities(region: &str) -> Vec<String> {
     let mut out = Vec::new();
     collect_zones(&Path::new(ZONEINFO).join(region), "", &mut out);
@@ -50,14 +50,14 @@ pub fn tz_cities(region: &str) -> Vec<String> {
     out
 }
 
-/// Pełna nazwa strefy, np. "Europe/Warsaw".
+/// Full zone name, e.g. "Europe/Warsaw".
 pub fn tz_full(region: &str, city: &str) -> String {
     format!("{region}/{city}")
 }
 
-/// Lista języków (nazwa do wyświetlenia, wartość LANG). Na górze języki
-/// z pełnym wsparciem libc musl (musl-locales); pozostałe działają przez
-/// tłumaczenia aplikacji (gettext), ale komunikaty musl zostają angielskie.
+/// Language list (display name, LANG value). Languages with full musl libc
+/// support (musl-locales) come first; the rest work through application
+/// translations (gettext), but musl's own messages stay English.
 pub fn locales() -> Vec<(&'static str, &'static str)> {
     vec![
         ("English (US)", "en_US.UTF-8"),
@@ -77,7 +77,7 @@ pub fn locales() -> Vec<(&'static str, &'static str)> {
         ("Norsk bokmål", "nb_NO.UTF-8"),
         ("Norsk nynorsk", "nn_NO.UTF-8"),
         ("Srpski", "sr_RS.UTF-8"),
-        // Poniżej: tłumaczenia aplikacji, libc musl pozostaje po angielsku.
+        // Below: application translations only; musl libc stays English.
         ("Polski", "pl_PL.UTF-8"),
         ("C (POSIX)", "C.UTF-8"),
     ]
@@ -95,7 +95,7 @@ fn evdev_lst() -> Option<String> {
     None
 }
 
-/// Parsuje sekcję "! <name>" z evdev.lst na pary (kod, opis).
+/// Parses a "! <name>" section of evdev.lst into (code, description) pairs.
 fn parse_section(lst: &str, name: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut in_sec = false;
@@ -118,7 +118,7 @@ fn parse_section(lst: &str, name: &str) -> Vec<(String, String)> {
     out
 }
 
-/// Fallback, gdy host nie ma xkb rules — garść najczęstszych układów.
+/// Fallback for hosts without xkb rules — a handful of the most common layouts.
 fn fallback_layouts() -> Vec<(String, String)> {
     [
         ("us", "English (US)"),
@@ -137,7 +137,7 @@ fn fallback_layouts() -> Vec<(String, String)> {
     .collect()
 }
 
-/// Układy klawiatury (kod xkb, opis), posortowane po opisie.
+/// Keyboard layouts (xkb code, description), sorted by description.
 pub fn kb_layouts() -> Vec<(String, String)> {
     let mut v = match evdev_lst() {
         Some(lst) => parse_section(&lst, "layout"),
@@ -150,13 +150,14 @@ pub fn kb_layouts() -> Vec<(String, String)> {
     v
 }
 
-/// Warianty dla danego układu (kod, opis). Pierwszy zawsze „domyślny" (pusty).
+/// Variants for a given layout (code, description). The first is always
+/// "default" (empty code).
 pub fn kb_variants(layout: &str) -> Vec<(String, String)> {
-    let mut out = vec![(String::new(), "domyślny".to_string())];
+    let mut out = vec![(String::new(), "default".to_string())];
     if let Some(lst) = evdev_lst() {
         let prefix = format!("{layout}:");
         for (code, desc) in parse_section(&lst, "variant") {
-            // Opis wariantu ma postać "<layout>: Opis".
+            // A variant description has the form "<layout>: Description".
             if let Some(rest) = desc.strip_prefix(&prefix) {
                 out.push((code, rest.trim().to_string()));
             }
@@ -165,7 +166,7 @@ pub fn kb_variants(layout: &str) -> Vec<(String, String)> {
     out
 }
 
-/// Domyślna strefa wykryta z hosta (z dowiązania /etc/localtime).
+/// Default zone detected from the host (from the /etc/localtime symlink).
 pub fn host_timezone() -> String {
     fs::read_link("/etc/localtime")
         .ok()

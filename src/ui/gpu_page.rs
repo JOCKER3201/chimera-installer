@@ -1,5 +1,5 @@
-// Strona wykrywania GPU i wyboru otwartych sterowników z jądra —
-// między wyborem trybu a źródłem pakietów / wariantem systemu.
+// The GPU detection and open in-kernel driver choice page —
+// between the mode choice and the package source / system variant.
 
 use super::{desktop_page, source_page, wizard_page, App};
 use crate::config::{GpuChoice, Mode, Source};
@@ -8,17 +8,17 @@ use adw::prelude::*;
 use std::rc::Rc;
 
 
-/// Eksperymentalne, zastrzeżone sterowniki NVIDIA budowane z PR-a cports
-/// (#6531) — dostępne wyłącznie w trybie live (budowa przez cbuild na
-/// działającym nośniku), wymaga sieci niezależnie od źródła pakietów.
+/// Experimental proprietary NVIDIA drivers built from the cports PR
+/// (#6531) — available only in live mode (built with cbuild on the running
+/// medium), requires network regardless of the package source.
 const NVIDIA_EXPERIMENTAL: &[gpu::DriverOption] = &[
     gpu::DriverOption {
         module: "nvidia-620",
-        label: "Zastrzeżony NVIDIA 620 — Turing i nowsze (EKSPERYMENTALNY)",
+        label: "Proprietary NVIDIA 620 — Turing and newer (EXPERIMENTAL)",
     },
     gpu::DriverOption {
         module: "nvidia-580",
-        label: "Zastrzeżony NVIDIA 580 — Maxwell/Pascal (EKSPERYMENTALNY)",
+        label: "Proprietary NVIDIA 580 — Maxwell/Pascal (EXPERIMENTAL)",
     },
 ];
 
@@ -30,14 +30,14 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let live = app.draft.borrow().mode == Some(Mode::Live);
     let gpus = gpu::scan();
-    // Karta + jej pełna lista opcji + wiersz, do odczytu przy przejściu dalej.
+    // The card + its full option list + the row, read when moving on.
     let mut rows: Vec<(gpu::GpuInfo, Vec<gpu::DriverOption>, adw::ComboRow)> = Vec::new();
 
     if gpus.is_empty() {
         list.append(
             &adw::ActionRow::builder()
-                .title("Nie wykryto kart graficznych")
-                .subtitle("Instalacja będzie kontynuowana bez konfiguracji sterowników.")
+                .title("No graphics cards detected")
+                .subtitle("The installation will continue without driver configuration.")
                 .build(),
         );
     }
@@ -58,7 +58,7 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     }
 
     let next = gtk::Button::builder()
-        .label("Dalej")
+        .label("Next")
         .halign(gtk::Align::Center)
         .css_classes(["suggested-action", "pill"])
         .build();
@@ -93,18 +93,19 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
                 .collect();
 
             if chosen.iter().any(|g| g.driver.starts_with("nvidia-")) {
-                // Wyraźna zgoda na wariant eksperymentalny przed przejściem dalej.
+                // Explicit consent to the experimental variant before moving on.
                 let dialog = adw::AlertDialog::new(
-                    Some("Sterownik eksperymentalny"),
+                    Some("Experimental driver"),
                     Some(
-                        "Zastrzeżony sterownik NVIDIA zostanie ZBUDOWANY z otwartego PR-a cports \
-                         (katalog roboczy /tmp/musl-nvidia) na samym początku instalacji — jeszcze \
-                         przed wymazaniem dysku, więc ewentualne niepowodzenie nie naruszy danych. \
-                         Budowa pobiera ok. 1,5–2 GB i trwa kilkanaście minut. Wariant jest \
-                         nieoficjalny i może nie działać na każdej karcie.",
+                        "The proprietary NVIDIA driver will be BUILT from the open cports PR \
+                         (working directory /tmp/musl-nvidia) at the very beginning of the \
+                         installation — before the disk is wiped, so a potential failure will \
+                         not touch your data. The build downloads about 1.5–2 GB and takes \
+                         around fifteen minutes. The variant is unofficial and may not work \
+                         with every card.",
                     ),
                 );
-                dialog.add_responses(&[("cancel", "Anuluj"), ("go", "Rozumiem, kontynuuj")]);
+                dialog.add_responses(&[("cancel", "Cancel"), ("go", "I understand, continue")]);
                 dialog.set_response_appearance("go", adw::ResponseAppearance::Destructive);
                 dialog.set_default_response(Some("cancel"));
                 dialog.set_close_response("cancel");
@@ -130,10 +131,10 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("video-display-symbolic")
-        .title("Karta graficzna")
+        .title("Graphics card")
         .description(
-            "Wykryte karty i dobór otwartych sterowników z jądra Linux. \
-             Instalator doinstaluje odpowiedni firmware i włączy wczesny KMS.",
+            "Detected cards and the choice of open in-kernel Linux drivers. \
+             The installer will add the right firmware and enable early KMS.",
         )
         .child(
             &adw::Clamp::builder()
@@ -143,5 +144,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Karta graficzna", "gpu", &status)
+    wizard_page("Graphics card", "gpu", &status)
 }

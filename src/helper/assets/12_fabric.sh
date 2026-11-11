@@ -1,12 +1,14 @@
 #!/bin/sh
-# 12_fabric — stały, wyróżniony wpis GRUB uruchamiający chronioną migawkę
-# fabryczną FABRIC (nr 1). Migawka jest zapisywalna, więc wstaje jak pełny
-# system (dinit remountuje / na rw — jak przy zwykłym rozruchu); `ro` niżej
-# to standardowy tryb startu, nie blokada. Skrypt leży w /etc/grub.d, czyli
-# w subwolumenie @, więc jest w KAŻDEJ migawce — dzięki temu po dowolnym
-# rollbacku (który przywraca grub.cfg razem z @) wpis FABRIC nadal powstaje.
-# Migawka nr 1 jest nieusuwalna (chattr +i na katalogu, puste cleanup),
-# więc ten wpis jest zawsze aktualny. Część chimera-installer, napisane od zera.
+# 12_fabric — a permanent, dedicated GRUB entry that boots the protected
+# FABRIC factory snapshot (no. 1). The snapshot is writable, so it comes up
+# as a full system (dinit remounts / as rw — just like on a regular boot);
+# the `ro` below is the standard boot mode, not a lock. The script lives in
+# /etc/grub.d, i.e. inside the @ subvolume, so it is present in EVERY
+# snapshot — thanks to that, after any rollback (which restores grub.cfg
+# together with @) the FABRIC entry is still generated.
+# Snapshot no. 1 is undeletable (chattr +i on the directory, empty cleanup),
+# so this entry is always current. Part of chimera-installer, written from
+# scratch.
 set -e
 
 snap=/.snapshots/1/snapshot
@@ -32,7 +34,7 @@ done
 iname="${initrd##*/}"
 subvol="@snapshots/1/snapshot"
 
-echo "12_fabric: dodaję stały wpis migawki fabrycznej FABRIC" >&2
+echo "12_fabric: adding the permanent FABRIC factory snapshot entry" >&2
 cat <<EOF
 menuentry 'Restore factory settings' {
     insmod part_gpt

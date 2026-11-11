@@ -1,22 +1,22 @@
-// Wykrywanie kart graficznych po stronie GUI (bez roota) z /sys/bus/pci
-// oraz katalog otwartych sterowników z jądra do wyboru per karta.
-// Zamknięte sterowniki świadomie poza zakresem (w repozytoriach Chimery
-// i tak ich nie ma); dla NVIDII wyłącznie nouveau + NVK.
+// Graphics card detection on the GUI side (no root) from /sys/bus/pci,
+// plus a catalog of in-kernel open drivers to choose from per card.
+// Proprietary drivers are deliberately out of scope (Chimera's repositories
+// do not carry them anyway); for NVIDIA only nouveau + NVK.
 
 use std::fs;
 
 #[derive(Clone)]
 pub struct DriverOption {
-    /// Nazwa modułu jądra (pusty = nic nie konfigurujemy).
+    /// Kernel module name (empty = configure nothing).
     pub module: &'static str,
     pub label: &'static str,
 }
 
 #[derive(Clone)]
 pub struct GpuInfo {
-    /// Adres PCI, np. 0000:01:00.0.
+    /// PCI address, e.g. 0000:01:00.0.
     pub slot: String,
-    /// Identyfikatory hex bez prefiksu 0x, np. 10de / 2684.
+    /// Hex identifiers without the 0x prefix, e.g. 10de / 2684.
     pub vendor: String,
     pub device: String,
     pub vendor_name: &'static str,
@@ -34,43 +34,43 @@ fn options_for(vendor: &str) -> (&'static str, Vec<DriverOption>) {
             "NVIDIA",
             vec![DriverOption {
                 module: "nouveau",
-                label: "nouveau + NVK (otwarty, z jądra)",
+                label: "nouveau + NVK (open, in-kernel)",
             }],
         ),
         "1002" => (
             "AMD",
             vec![
-                DriverOption { module: "amdgpu", label: "amdgpu (otwarty, nowsze karty)" },
-                DriverOption { module: "radeon", label: "radeon (otwarty, starsze karty)" },
+                DriverOption { module: "amdgpu", label: "amdgpu (open, newer cards)" },
+                DriverOption { module: "radeon", label: "radeon (open, older cards)" },
             ],
         ),
         "8086" => (
             "Intel",
             vec![
-                DriverOption { module: "i915", label: "i915 (otwarty)" },
-                DriverOption { module: "xe", label: "xe (otwarty, najnowsze generacje)" },
+                DriverOption { module: "i915", label: "i915 (open)" },
+                DriverOption { module: "xe", label: "xe (open, latest generations)" },
             ],
         ),
         "15ad" => (
             "VMware",
-            vec![DriverOption { module: "vmwgfx", label: "vmwgfx (otwarty, z jądra)" }],
+            vec![DriverOption { module: "vmwgfx", label: "vmwgfx (open, in-kernel)" }],
         ),
         "1af4" => (
             "VirtIO",
-            vec![DriverOption { module: "virtio-gpu", label: "virtio-gpu (otwarty, z jądra)" }],
+            vec![DriverOption { module: "virtio-gpu", label: "virtio-gpu (open, in-kernel)" }],
         ),
         "1234" | "1b36" => (
             "QEMU",
-            vec![DriverOption { module: "bochs", label: "bochs (otwarty, z jądra)" }],
+            vec![DriverOption { module: "bochs", label: "bochs (open, in-kernel)" }],
         ),
         _ => (
-            "Nieznany producent",
-            vec![DriverOption { module: "", label: "ogólny KMS z jądra (bez zmian)" }],
+            "Unknown vendor",
+            vec![DriverOption { module: "", label: "generic in-kernel KMS (no changes)" }],
         ),
     }
 }
 
-/// Karty graficzne: urządzenia PCI o klasie 0x03xxxx.
+/// Graphics cards: PCI devices of class 0x03xxxx.
 pub fn scan() -> Vec<GpuInfo> {
     let mut found = Vec::new();
     let Ok(entries) = fs::read_dir("/sys/bus/pci/devices") else {

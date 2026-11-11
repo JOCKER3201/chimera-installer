@@ -1,4 +1,4 @@
-// Strona wyboru źródła pakietów — tylko dla instalacji z nośnika live.
+// The package source choice page — only for installations from a live medium.
 
 use super::{desktop_page, disk_page, wizard_page, App};
 use crate::config::{Desktop, Source};
@@ -12,11 +12,12 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         .build();
 
     let local = adw::ActionRow::builder()
-        .title("Lokalnie, z nośnika")
+        .title("Locally, from the medium")
         .subtitle(
-            "Wierna kopia systemu z nośnika — razem z jego pulpitem i włączonymi \
-             usługami (np. ISO Plasmy daje system z Plasmą i SDDM). Dodatki spoza \
-             nośnika — snapper i mikrokod CPU — zostaną pobrane z sieci.",
+            "A faithful copy of the medium's system — together with its desktop and \
+             enabled services (e.g. the Plasma ISO yields a system with Plasma and \
+             SDDM). Extras not on the medium — snapper and CPU microcode — will be \
+             downloaded from the network.",
         )
         .activatable(true)
         .build();
@@ -24,10 +25,10 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     local.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
 
     let network = adw::ActionRow::builder()
-        .title("Z sieci")
+        .title("From the network")
         .subtitle(
-            "Najnowsze pakiety z repozytorium Chimera Linux — wymaga internetu. \
-             Pozwala wybrać wariant systemu (base, GNOME, KDE Plasma).",
+            "The latest packages from the Chimera Linux repository — requires \
+             internet. Lets you choose the system variant (base, GNOME, KDE Plasma).",
         )
         .activatable(true)
         .build();
@@ -58,8 +59,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("folder-download-symbolic")
-        .title("Źródło pakietów")
-        .description("Skąd mają pochodzić pakiety instalowanego systemu?")
+        .title("Package source")
+        .description("Where should the installed system's packages come from?")
         .child(
             &adw::Clamp::builder()
                 .maximum_size(520)
@@ -68,5 +69,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Źródło pakietów", "source", &status)
+    wizard_page("Package source", "source", &status)
 }

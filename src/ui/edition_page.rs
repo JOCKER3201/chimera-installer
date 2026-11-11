@@ -1,4 +1,4 @@
-// Strona wyboru wariantu pulpitu (base / full) — po wyborze GNOME lub KDE.
+// The desktop edition choice page (base / full) — after picking GNOME or KDE.
 
 use super::{disk_page, wizard_page, App};
 use crate::config::{Desktop, Edition};
@@ -19,17 +19,17 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let base_sub = match desktop {
         Desktop::Kde => {
-            "Plasma bez zestawu aplikacji i multimediów, z samym terminalem (Konsole). \
-             Dodatkowe programy doinstalujesz później."
+            "Plasma without the application and multimedia sets, with just a terminal \
+             (Konsole). Additional programs can be installed later."
         }
         _ => {
-            "GNOME bez pakietu aplikacji, z samym terminalem (Console). \
-             Dodatkowe programy doinstalujesz później."
+            "GNOME without the application set, with just a terminal (Console). \
+             Additional programs can be installed later."
         }
     };
 
     let base = adw::ActionRow::builder()
-        .title("Base — lekki")
+        .title("Base — lightweight")
         .subtitle(base_sub)
         .activatable(true)
         .build();
@@ -37,9 +37,9 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
     base.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
 
     let full = adw::ActionRow::builder()
-        .title("Full — pełny")
+        .title("Full — complete")
         .subtitle(format!(
-            "Kompletne środowisko {name} ze wszystkimi domyślnymi aplikacjami."
+            "The complete {name} environment with all the default applications."
         ))
         .activatable(true)
         .build();
@@ -64,8 +64,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("preferences-desktop-apps-symbolic")
-        .title(format!("Wariant: {name}"))
-        .description("Ile aplikacji zainstalować razem ze środowiskiem graficznym?")
+        .title(format!("Edition: {name}"))
+        .description("How many applications should be installed along with the desktop environment?")
         .child(
             &adw::Clamp::builder()
                 .maximum_size(520)
@@ -74,5 +74,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Wariant pulpitu", "edition", &status)
+    wizard_page("Desktop edition", "edition", &status)
 }

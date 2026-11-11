@@ -3,7 +3,7 @@ name = "chimera-installer"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Graficzny instalator Chimera Linux (GTK4 + libadwaita)"
+description = "Graphical installer for Chimera Linux (GTK4 + libadwaita)"
 
 [dependencies]
 gtk = { package = "gtk4", version = "0.9", features = ["v4_10"] }

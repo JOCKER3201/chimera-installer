@@ -1,4 +1,4 @@
-// Podsumowanie planu instalacji i ostateczne potwierdzenie.
+// Summary of the installation plan and the final confirmation.
 
 use super::{progress_page, wizard_page, App};
 use crate::config::{format_gib, Desktop, Edition, InstallConfig, Mode, Source, Strategy, SECTOR};
@@ -13,9 +13,9 @@ fn row(title: &str, value: &str) -> adw::ActionRow {
 
 fn build_config(app: &Rc<App>) -> InstallConfig {
     let d = app.draft.borrow();
-    let choice = d.choice.clone().expect("brak wyboru dysku");
+    let choice = d.choice.clone().expect("no disk choice");
     InstallConfig {
-        mode: d.mode.expect("brak trybu"),
+        mode: d.mode.expect("no mode"),
         source: d.source.unwrap_or(Source::Network),
         desktop: d.desktop.unwrap_or(Desktop::Base),
         edition: d.edition.unwrap_or(Edition::Full),
@@ -47,29 +47,29 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         .build();
 
     list.append(&row(
-        "Tryb instalacji",
+        "Installation mode",
         match cfg.mode {
-            Mode::Live => "z nośnika live Chimery (chimera-bootstrap)",
-            Mode::Foreign => "z innego systemu (obraz bazowy + chroot w /tmp/chimera-linux)",
+            Mode::Live => "from a Chimera live medium (chimera-bootstrap)",
+            Mode::Foreign => "from another system (base image + chroot in /tmp/chimera-linux)",
         },
     ));
     list.append(&row(
-        "Źródło pakietów",
+        "Package source",
         match cfg.source {
-            Source::Local => "lokalne (z nośnika live)",
-            Source::Network => "sieciowe (repo.chimera-linux.org)",
+            Source::Local => "local (from the live medium)",
+            Source::Network => "network (repo.chimera-linux.org)",
         },
     ));
     let ed = match cfg.edition {
-        Edition::Base => "base, lekki",
-        Edition::Full => "full, pełny",
+        Edition::Base => "base, lightweight",
+        Edition::Full => "full, complete",
     };
     list.append(&row(
-        "Wariant systemu",
+        "System variant",
         &match cfg.desktop {
-            Desktop::Base => "system bazowy (konsola)".to_string(),
-            Desktop::Gnome => format!("GNOME z GDM ({ed})"),
-            Desktop::Kde => format!("KDE Plasma z SDDM ({ed})"),
+            Desktop::Base => "base system (console)".to_string(),
+            Desktop::Gnome => format!("GNOME with GDM ({ed})"),
+            Desktop::Kde => format!("KDE Plasma with SDDM ({ed})"),
         },
     ));
     if !cfg.gpus.is_empty() {
@@ -77,71 +77,71 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
             .gpus
             .iter()
             .map(|g| {
-                let drv = if g.driver.is_empty() { "bez zmian" } else { &g.driver };
+                let drv = if g.driver.is_empty() { "no changes" } else { &g.driver };
                 if drv.starts_with("nvidia-") {
-                    format!("{drv} — EKSPERYMENTALNY ({}:{})", g.vendor, g.device)
+                    format!("{drv} — EXPERIMENTAL ({}:{})", g.vendor, g.device)
                 } else {
                     format!("{drv} ({}:{})", g.vendor, g.device)
                 }
             })
             .collect::<Vec<_>>()
             .join(", ");
-        list.append(&row("Sterowniki GPU (otwarte)", &desc));
+        list.append(&row("GPU drivers (open)", &desc));
     }
-    list.append(&row("Dysk docelowy", &cfg.disk));
+    list.append(&row("Target disk", &cfg.disk));
     match cfg.strategy {
         Strategy::Whole => list.append(&row(
-            "Partycjonowanie",
-            "CAŁY DYSK zostanie wymazany (GPT, ESP/BIOS boot + btrfs)",
+            "Partitioning",
+            "the WHOLE DISK will be wiped (GPT, ESP/BIOS boot + btrfs)",
         )),
         Strategy::Free { sectors, .. } => {
             let mut s = format!(
-                "nowe partycje w wolnym miejscu ({}), istniejące dane nietknięte",
+                "new partitions in the free space ({}), existing data untouched",
                 format_gib(sectors * SECTOR)
             );
             if let Some(esp) = &cfg.esp_reuse {
-                s.push_str(&format!("; istniejąca ESP {esp} zostanie użyta ponownie"));
+                s.push_str(&format!("; the existing ESP {esp} will be reused"));
             }
-            list.append(&row("Partycjonowanie", &s));
+            list.append(&row("Partitioning", &s));
         }
     }
     list.append(&row(
-        "System plików",
-        "btrfs, układ CachyOS (stały subvol=@, @home, @log, @cache, @snapshots)",
+        "Filesystem",
+        "btrfs, CachyOS layout (fixed subvol=@, @home, @log, @cache, @snapshots)",
     ));
     list.append(&row(
-        "Migawki",
-        "snapper skonfigurowany jak w openSUSE; wpisy migawek w menu GRUB-a",
+        "Snapshots",
+        "snapper configured like openSUSE; snapshot entries in the GRUB menu",
     ));
     list.append(&row(
-        "Program rozruchowy",
+        "Bootloader",
         if cfg.uefi {
-            "GRUB (UEFI, x86_64-efi, ESP pod /boot/efi)"
+            "GRUB (UEFI, x86_64-efi, ESP at /boot/efi)"
         } else {
             "GRUB (BIOS, i386-pc)"
         },
     ));
-    list.append(&row("Nazwa komputera", &cfg.hostname));
+    list.append(&row("Computer name", &cfg.hostname));
     list.append(&row(
-        "Użytkownik",
+        "User",
         &format!("{} (wheel); root: {}", cfg.username,
-            if cfg.root_password.is_some() { "z hasłem" } else { "zablokowany" }),
+            if cfg.root_password.is_some() { "with a password" } else { "locked" }),
     ));
-    list.append(&row("Strefa czasowa", &cfg.timezone));
-    list.append(&row("Język", &cfg.locale));
+    list.append(&row("Time zone", &cfg.timezone));
+    list.append(&row("Language", &cfg.locale));
     let kb = if cfg.kb_variant.is_empty() {
         cfg.kb_layout.clone()
     } else {
         format!("{} ({})", cfg.kb_layout, cfg.kb_variant)
     };
-    list.append(&row("Układ klawiatury", &kb));
+    list.append(&row("Keyboard layout", &kb));
     list.append(&row(
-        "Serwer SSH",
-        if cfg.enable_ssh { "włączony" } else { "wyłączony" },
+        "SSH server",
+        if cfg.enable_ssh { "enabled" } else { "disabled" },
     ));
 
     let install = gtk::Button::builder()
-        .label("Zainstaluj")
+        .label("Install")
         .halign(gtk::Align::Center)
         .css_classes(["destructive-action", "pill"])
         .build();
@@ -152,18 +152,18 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
             let cfg = build_config(&app);
             let body = match cfg.strategy {
                 Strategy::Whole => format!(
-                    "Cały dysk {} zostanie wymazany i podzielony od nowa. \
-                     Tej operacji nie można cofnąć.",
+                    "The whole disk {} will be wiped and repartitioned from scratch. \
+                     This operation cannot be undone.",
                     cfg.disk
                 ),
                 Strategy::Free { .. } => format!(
-                    "Na dysku {} zostaną utworzone nowe partycje w wolnym miejscu. \
-                     Istniejące partycje nie będą zmieniane.",
+                    "New partitions will be created in the free space on disk {}. \
+                     Existing partitions will not be changed.",
                     cfg.disk
                 ),
             };
-            let dialog = adw::AlertDialog::new(Some("Rozpocząć instalację?"), Some(&body));
-            dialog.add_responses(&[("cancel", "Anuluj"), ("go", "Rozpocznij instalację")]);
+            let dialog = adw::AlertDialog::new(Some("Start the installation?"), Some(&body));
+            dialog.add_responses(&[("cancel", "Cancel"), ("go", "Start the installation")]);
             dialog.set_response_appearance("go", adw::ResponseAppearance::Destructive);
             dialog.set_default_response(Some("cancel"));
             dialog.set_close_response("cancel");
@@ -186,8 +186,8 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
 
     let status = adw::StatusPage::builder()
         .icon_name("emblem-documents-symbolic")
-        .title("Podsumowanie")
-        .description("Sprawdź plan instalacji. Zmiany na dysku zaczną się dopiero po potwierdzeniu.")
+        .title("Summary")
+        .description("Review the installation plan. Nothing touches the disk until you confirm.")
         .child(
             &adw::Clamp::builder()
                 .maximum_size(560)
@@ -196,5 +196,5 @@ pub fn build(app: &Rc<App>) -> adw::NavigationPage {
         )
         .build();
 
-    wizard_page("Podsumowanie", "summary", &status)
+    wizard_page("Summary", "summary", &status)
 }
